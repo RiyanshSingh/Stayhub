@@ -1,9 +1,10 @@
 {
-  "name": "vite_react_shadcn_ts",
+  "name": "stayhub-app",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "version": "1.0.0",
+  "type": "commonjs",
   "scripts": {
+    "start": "node server/index.js",
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
