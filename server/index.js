@@ -638,7 +638,11 @@ app.put('/api/notifications/read-all', authenticateToken, (req, res) => {
 });
 
 // Start Server
-console.log('Attempting to start server on port', PORT);
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-});
+if (require.main === module) {
+    console.log('Attempting to start server on port', PORT);
+    app.listen(PORT, () => {
+        console.log(`Server running on http://localhost:${PORT}`);
+    });
+}
+
+module.exports = app;
