@@ -13,13 +13,35 @@ const SECRET_KEY = "your-secret-key-change-this-in-production";
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
+const fs = require('fs');
+
 // Database Setup
-const dbPath = path.resolve(__dirname, 'database.sqlite');
+let dbPath = path.resolve(__dirname, 'database.sqlite');
+
+// Vercel / Serverless Handling: Copy DB to /tmp if we are in a read-only environment
+if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+    const tmpDbPath = '/tmp/database.sqlite';
+    // If the tmp DB doesn't exist, copy the initial one from source
+    if (!fs.existsSync(tmpDbPath)) {
+        try {
+            if (fs.existsSync(dbPath)) {
+                fs.copyFileSync(dbPath, tmpDbPath);
+                console.log('Copied database to /tmp');
+            } else {
+                console.log('Original database not found, creating new one in /tmp');
+            }
+        } catch (error) {
+            console.error('Error copying database to /tmp:', error);
+        }
+    }
+    dbPath = tmpDbPath;
+}
+
 const db = new sqlite3.Database(dbPath, (err) => {
     if (err) {
         console.error('Error opening database', err.message);
     } else {
-        console.log('Connected to the SQLite database.');
+        console.log(`Connected to the SQLite database at ${dbPath}`);
         console.log('Initializing tables...');
 
         // Create table
