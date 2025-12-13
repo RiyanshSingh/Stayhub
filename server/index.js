@@ -414,6 +414,47 @@ app.post('/api/auth/register', async (req, res) => {
     });
 });
 
+// Mock Google Login
+app.post('/api/auth/google', (req, res) => {
+    // Simulate successful Google Login
+    const mockGoogleUser = {
+        name: "Google User",
+        email: "user@gmail.com",
+        avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=google",
+        phone: null
+    };
+
+    // Check if user exists, else create (Mock)
+    db.get('SELECT * FROM users WHERE email = ?', [mockGoogleUser.email], (err, user) => {
+        if (err) return res.status(500).json({ message: "Database error" });
+
+        if (user) {
+            // Login existing
+            const token = jwt.sign({ id: user.id, email: user.email }, SECRET_KEY, { expiresIn: '24h' });
+            return res.json({
+                message: "Google Login successful",
+                token,
+                user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar, phone: user.phone }
+            });
+        } else {
+            // Register new
+            db.run('INSERT INTO users (name, email, password, avatar) VALUES (?, ?, ?, ?)',
+                [mockGoogleUser.name, mockGoogleUser.email, 'google-oauth-mock-pass', mockGoogleUser.avatar],
+                function (err) {
+                    if (err) return res.status(500).json({ message: "Error creating Google user" });
+
+                    const token = jwt.sign({ id: this.lastID, email: mockGoogleUser.email }, SECRET_KEY, { expiresIn: '24h' });
+                    return res.status(201).json({
+                        message: "Google Login successful",
+                        token,
+                        user: { id: this.lastID, ...mockGoogleUser }
+                    });
+                }
+            );
+        }
+    });
+});
+
 // Login
 app.post('/api/auth/login', (req, res) => {
     const { email, password } = req.body;
@@ -829,11 +870,11 @@ app.put('/api/notifications/read-all', authenticateToken, (req, res) => {
 });
 
 // Start Server
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.log('Attempting to start server on port', PORT);
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });
 }
 
-module.exports = app;
+export default app;

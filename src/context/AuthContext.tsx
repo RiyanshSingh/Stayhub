@@ -13,6 +13,7 @@ export interface User {
 interface AuthContextType {
     user: User | null;
     login: (email: string, password: string) => Promise<void>;
+    loginWithGoogle: () => Promise<void>;
     register: (name: string, email: string, password: string, securityQuestion?: string, securityAnswer?: string) => Promise<void>;
     logout: () => void;
     isAuthenticated: boolean;
@@ -56,6 +57,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.setItem("auth_token", data.token);
         } catch (error) {
             console.error("Login error:", error);
+            throw error;
+        }
+    };
+
+
+    const loginWithGoogle = async () => {
+        try {
+            const response = await fetch('/api/auth/google', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}), // Mock request
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Google Login failed');
+            }
+
+            setUser(data.user);
+            localStorage.setItem("auth_token", data.token);
+            // Store user data
+            localStorage.setItem("user_data", JSON.stringify(data.user));
+        } catch (error) {
+            console.error("Google Login error:", error);
             throw error;
         }
     };
@@ -118,6 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             token: localStorage.getItem("auth_token"),
             isAuthenticated: !!user,
             login,
+            loginWithGoogle,
             register,
             updateProfile,
             logout
