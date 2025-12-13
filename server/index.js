@@ -15,171 +15,208 @@ app.use(express.json({ limit: '50mb' }));
 
 const fs = require('fs');
 
-// Database Setup
-let dbPath = path.resolve(__dirname, 'database.sqlite');
+// Database Object
+let db;
 
-// Vercel / Serverless Handling: Copy DB to /tmp if we are in a read-only environment
-if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-    const tmpDbPath = '/tmp/database.sqlite';
-    // If the tmp DB doesn't exist, copy the initial one from source
-    if (!fs.existsSync(tmpDbPath)) {
-        try {
+// Initialize Database safely
+try {
+    // Database Setup
+    let dbPath = path.resolve(__dirname, 'database.sqlite');
+    // Fallback for Vercel: Check process.cwd() if __dirname fails to find it
+    const copyDbFromCwd = path.join(process.cwd(), 'server', 'database.sqlite');
+
+    // Vercel / Serverless Handling: Copy DB to /tmp if we are in a read-only environment
+    if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
+        const tmpDbPath = '/tmp/database.sqlite';
+
+        // Debugging logs for paths
+        console.log('Environment: Production/Vercel');
+        console.log('__dirname DB Path:', dbPath);
+        console.log('process.cwd() DB Path:', copyDbFromCwd);
+
+        // If the tmp DB doesn't exist, copy the initial one from source
+        if (!fs.existsSync(tmpDbPath)) {
+            // Try __dirname first
             if (fs.existsSync(dbPath)) {
                 fs.copyFileSync(dbPath, tmpDbPath);
-                console.log('Copied database to /tmp');
-            } else {
-                console.log('Original database not found, creating new one in /tmp');
+                console.log('Copied database from __dirname to /tmp');
             }
-        } catch (error) {
-            console.error('Error copying database to /tmp:', error);
+            // Try process.cwd() fallback
+            else if (fs.existsSync(copyDbFromCwd)) {
+                fs.copyFileSync(copyDbFromCwd, tmpDbPath);
+                console.log('Copied database from process.cwd() to /tmp');
+            } else {
+                console.log('Original database not found in either location, creating new empty one in /tmp');
+            }
         }
+        dbPath = tmpDbPath;
     }
-    dbPath = tmpDbPath;
+
+    db = new sqlite3.Database(dbPath, (err) => {
+        if (err) {
+            console.error('Error opening database', err.message);
+            throw err; // Re-throw to be caught by outer block
+        } else {
+            console.log(`Connected to the SQLite database at ${dbPath}`);
+            console.log('Initializing tables...');
+
+            // ... (Table creation logic stays here or is called here)
+            // For brevity in this replacement, we trust the table creation continues if no error
+            initializeTables(db);
+        }
+    });
+
+} catch (error) {
+    console.error("CRITICAL DATABASE ERROR:", error);
+    // Overwrite app routes to simply return the error
+    app.use((req, res) => {
+        res.status(500).json({
+            message: "Database Initialization Failed",
+            error: error.message,
+            stack: error.stack,
+            paths: {
+                dirname: __dirname,
+                cwd: process.cwd()
+            }
+        });
+    });
 }
 
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('Error opening database', err.message);
-    } else {
-        console.log(`Connected to the SQLite database at ${dbPath}`);
-        console.log('Initializing tables...');
+// Helper function to keep the table creation code organized
+function initializeTables(db) {
+    // Create table
+    db.run(`CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        email TEXT UNIQUE,
+        password TEXT,
+        avatar TEXT
+    )`, (err) => {
+        if (!err) {
+            // Attempt to add phone column if it doesn't exist (migration)
+            db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, (err) => { /* Ignore */ });
+            db.run(`ALTER TABLE users ADD COLUMN address TEXT`, (err) => { /* Ignore */ });
+            db.run(`ALTER TABLE users ADD COLUMN gender TEXT`, (err) => { /* Ignore */ });
+            db.run(`ALTER TABLE users ADD COLUMN security_question TEXT`, (err) => { /* Ignore */ });
+            db.run(`ALTER TABLE users ADD COLUMN security_answer TEXT`, (err) => { /* Ignore */ });
+        }
+    });
 
-        // Create table
-        db.run(`CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT,
-            email TEXT UNIQUE,
-            password TEXT,
-            avatar TEXT
-        )`, (err) => {
-            if (!err) {
-                // Attempt to add phone column if it doesn't exist (migration)
-                db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, (err) => { /* Ignore */ });
-                db.run(`ALTER TABLE users ADD COLUMN address TEXT`, (err) => { /* Ignore */ });
-                db.run(`ALTER TABLE users ADD COLUMN gender TEXT`, (err) => { /* Ignore */ });
-                db.run(`ALTER TABLE users ADD COLUMN security_question TEXT`, (err) => { /* Ignore */ });
-                db.run(`ALTER TABLE users ADD COLUMN security_answer TEXT`, (err) => { /* Ignore */ });
-            }
-        });
+    // Create properties table
+    db.run(`CREATE TABLE IF NOT EXISTS properties (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        name TEXT,
+        slug TEXT UNIQUE,
+        description TEXT,
+        price REAL,
+        location TEXT,
+        city TEXT,
+        country TEXT,
+        type TEXT,
+        amenities TEXT,
+        images TEXT,
+        currency TEXT,
+        rating REAL DEFAULT 0,
+        reviewCount INTEGER DEFAULT 0,
+        category TEXT,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )`);
 
-        // Create properties table
-        db.run(`CREATE TABLE IF NOT EXISTS properties (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT,
-            slug TEXT UNIQUE,
-            description TEXT,
-            price REAL,
-            location TEXT,
-            city TEXT,
-            country TEXT,
-            type TEXT,
-            amenities TEXT,
-            images TEXT,
-            currency TEXT,
-            rating REAL DEFAULT 0,
-            reviewCount INTEGER DEFAULT 0,
-            category TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )`);
+    // Create bookings table
+    db.run(`CREATE TABLE IF NOT EXISTS bookings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        property_id INTEGER,
+        property_name TEXT,
+        property_image TEXT,
+        check_in TEXT,
+        check_out TEXT,
+        guests INTEGER,
+        total_price REAL,
+        nights INTEGER,
+        status TEXT DEFAULT 'confirmed',
+        cancellation_reason TEXT,
+        refund_status TEXT,
+        payment_method TEXT,
+        transaction_id TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id),
+        FOREIGN KEY(property_id) REFERENCES properties(id)
+    )`, (err) => {
+        if (!err) {
+            // Migration: Add new columns if they don't exist
+            const columnsToAdd = [
+                "ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT",
+                "ALTER TABLE bookings ADD COLUMN refund_status TEXT",
+                "ALTER TABLE bookings ADD COLUMN payment_method TEXT",
+                "ALTER TABLE bookings ADD COLUMN transaction_id TEXT"
+            ];
+            columnsToAdd.forEach(sql => {
+                db.run(sql, (err) => { /* Ignore errors if column exists */ });
+            });
+        }
+    });
 
-        // ... (existing code top)
+    // Create reviews table
+    db.run(`CREATE TABLE IF NOT EXISTS reviews (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        property_id INTEGER,
+        booking_id INTEGER,
+        rating REAL,
+        comment TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id),
+        FOREIGN KEY(property_id) REFERENCES properties(id),
+        FOREIGN KEY(booking_id) REFERENCES bookings(id)
+    )`);
 
-        // Create bookings table
-        db.run(`CREATE TABLE IF NOT EXISTS bookings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            property_id INTEGER,
-            property_name TEXT,
-            property_image TEXT,
-            check_in TEXT,
-            check_out TEXT,
-            guests INTEGER,
-            total_price REAL,
-            nights INTEGER,
-            status TEXT DEFAULT 'confirmed',
-            cancellation_reason TEXT,
-            refund_status TEXT,
-            payment_method TEXT,
-            transaction_id TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id),
-            FOREIGN KEY(property_id) REFERENCES properties(id)
-        )`, (err) => {
-            if (!err) {
-                // Migration: Add new columns if they don't exist
-                const columnsToAdd = [
-                    "ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT",
-                    "ALTER TABLE bookings ADD COLUMN refund_status TEXT",
-                    "ALTER TABLE bookings ADD COLUMN payment_method TEXT",
-                    "ALTER TABLE bookings ADD COLUMN transaction_id TEXT"
-                ];
-                columnsToAdd.forEach(sql => {
-                    db.run(sql, (err) => { /* Ignore errors if column exists */ });
-                });
-            }
-        });
+    // Create support tickets table
+    db.run(`CREATE TABLE IF NOT EXISTS support_tickets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        booking_id INTEGER,
+        subject TEXT,
+        status TEXT DEFAULT 'Open',
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id),
+        FOREIGN KEY(booking_id) REFERENCES bookings(id)
+    )`);
 
-        // Create reviews table
-        db.run(`CREATE TABLE IF NOT EXISTS reviews (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            property_id INTEGER,
-            booking_id INTEGER,
-            rating REAL,
-            comment TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id),
-            FOREIGN KEY(property_id) REFERENCES properties(id),
-            FOREIGN KEY(booking_id) REFERENCES bookings(id)
-        )`);
+    // Create messages table
+    db.run(`CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER,
+        sender TEXT,
+        text TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(ticket_id) REFERENCES support_tickets(id)
+    )`);
 
-        // Create support tickets table
-        db.run(`CREATE TABLE IF NOT EXISTS support_tickets (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            booking_id INTEGER,
-            subject TEXT,
-            status TEXT DEFAULT 'Open',
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id),
-            FOREIGN KEY(booking_id) REFERENCES bookings(id)
-        )`);
+    // Create wishlist table
+    db.run(`CREATE TABLE IF NOT EXISTS wishlist (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        property_id INTEGER,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id),
+        FOREIGN KEY(property_id) REFERENCES properties(id),
+        UNIQUE(user_id, property_id)
+    )`);
 
-        // Create messages table
-        db.run(`CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ticket_id INTEGER,
-            sender TEXT,
-            text TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(ticket_id) REFERENCES support_tickets(id)
-        )`);
-
-        // Create wishlist table
-        db.run(`CREATE TABLE IF NOT EXISTS wishlist (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            property_id INTEGER,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id),
-            FOREIGN KEY(property_id) REFERENCES properties(id),
-            UNIQUE(user_id, property_id)
-        )`);
-
-        // Create notifications table
-        db.run(`CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            type TEXT,
-            message TEXT,
-            is_read INTEGER DEFAULT 0,
-            link TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        )`);
-    }
-});
+    // Create notifications table
+    db.run(`CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        type TEXT,
+        message TEXT,
+        is_read INTEGER DEFAULT 0,
+        link TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(user_id) REFERENCES users(id)
+    )`);
+}
 
 // Helper to create notification
 const createNotification = (userId, type, message, link = null) => {
