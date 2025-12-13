@@ -729,9 +729,11 @@ app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
 });
 
 
-// Start Server
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+// Start Server only if run directly
+if (process.argv[1] === __filename) {
+    app.listen(PORT, () => {
+        console.log(`Server running on port ${PORT}`);
+    });
+}
 
 export default app;
