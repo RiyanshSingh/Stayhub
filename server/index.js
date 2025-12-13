@@ -20,6 +20,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
         console.error('Error opening database', err.message);
     } else {
         console.log('Connected to the SQLite database.');
+        console.log('Initializing tables...');
 
         // Create table
         db.run(`CREATE TABLE IF NOT EXISTS users (
@@ -34,6 +35,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, (err) => { /* Ignore */ });
                 db.run(`ALTER TABLE users ADD COLUMN address TEXT`, (err) => { /* Ignore */ });
                 db.run(`ALTER TABLE users ADD COLUMN gender TEXT`, (err) => { /* Ignore */ });
+                db.run(`ALTER TABLE users ADD COLUMN security_question TEXT`, (err) => { /* Ignore */ });
+                db.run(`ALTER TABLE users ADD COLUMN security_answer TEXT`, (err) => { /* Ignore */ });
             }
         });
 
@@ -260,53 +263,81 @@ app.post('/api/auth/login', (req, res) => {
 
 // Update Profile
 app.put('/api/auth/profile', authenticateToken, (req, res) => {
-    const { name, phone, avatar, address, gender } = req.body;
-    const sql = `UPDATE users SET name = ?, phone = ?, avatar = ?, address = ?, gender = ? WHERE id = ?`;
+    const userId = req.user.id;
+    const { name, phone, avatar, address, gender, security_question, security_answer } = req.body;
 
-    db.run(sql, [name, phone, avatar, address, gender, req.user.id], function (err) {
-        if (err) {
-            return res.status(500).json({ message: "Error updating profile" });
+    db.run(`UPDATE users SET name = ?, phone = ?, avatar = ?, address = ?, gender = ?, security_question = ?, security_answer = ? WHERE id = ?`,
+        [name, phone, avatar, address, gender, security_question, security_answer, userId],
+        function (err) {
+            if (err) {
+                return res.status(500).json({ message: "Error updating profile" });
+            }
+
+            db.get(`SELECT id, name, email, avatar, phone, address, gender, security_question FROM users WHERE id = ?`, [userId], (err, updatedUser) => {
+                if (err || !updatedUser) {
+                    return res.status(500).json({ message: "Error fetching updated profile" });
+                }
+                res.json({ message: "Profile updated", user: updatedUser });
+                createNotification(req.user.id, 'profile', `Profile updated successfully`, `/dashboard/profile`);
+            });
+        });
+});
+// 1. Init Forgot Password - Get Security Question
+app.post('/api/auth/forgot-password-init', (req, res) => {
+    const { email } = req.body;
+    db.get('SELECT id, security_question FROM users WHERE email = ?', [email], (err, user) => {
+        if (err) return res.status(500).json({ message: "Server error" });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        if (!user.security_question) {
+            return res.status(400).json({ message: "No security question set for this account. Please contact support." });
         }
 
-        db.get(`SELECT id, name, email, avatar, phone, address, gender FROM users WHERE id = ?`, [req.user.id], (err, updatedUser) => {
-            if (err || !updatedUser) {
-                return res.status(500).json({ message: "Error fetching updated profile" });
-            }
-            res.json({ message: "Profile updated", user: updatedUser });
-            createNotification(req.user.id, 'profile', `Profile updated successfully`, `/dashboard/profile`);
-        });
+        res.json({ security_question: user.security_question });
     });
 });
 
-// Reset Password
-app.post('/api/auth/reset-password', async (req, res) => {
-    const { email, newPassword } = req.body;
+// 2. Verify Security Answer
+app.post('/api/auth/verify-security-answer', (req, res) => {
+    const { email, answer } = req.body;
+    db.get('SELECT id, security_answer FROM users WHERE email = ?', [email], (err, user) => {
+        if (err) return res.status(500).json({ message: "Server error" });
+        if (!user) return res.status(404).json({ message: "User not found" });
 
-    if (!email || !newPassword) {
-        return res.status(400).json({ message: "Email and new password are required" });
+        // Simple case-insensitive comparison
+        if (user.security_answer && user.security_answer.toLowerCase().trim() === answer.toLowerCase().trim()) {
+            // Generate a temporary reset token (signed userId with 15m expiry)
+            const resetToken = jwt.sign({ id: user.id, type: 'reset' }, SECRET_KEY, { expiresIn: '15m' });
+            return res.json({ resetToken });
+        } else {
+            return res.status(401).json({ message: "Incorrect answer" });
+        }
+    });
+});
+
+
+// 3. Reset Password
+app.post('/api/auth/reset-password', async (req, res) => {
+    const { email, newPassword, resetToken } = req.body;
+
+    if (!resetToken) {
+        return res.status(400).json({ message: "Reset token missing" });
     }
 
-    // Check if user exists first
-    const checkUserSql = `SELECT * FROM users WHERE email = ?`;
-    db.get(checkUserSql, [email], async (err, user) => {
-        if (err) {
-            return res.status(500).json({ message: "Database error" });
-        }
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
+    try {
+        // Verify token
+        const decoded = jwt.verify(resetToken, SECRET_KEY);
 
         // Update password
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        const updateSql = `UPDATE users SET password = ? WHERE email = ?`;
 
-        db.run(updateSql, [hashedPassword, email], function (err) {
-            if (err) {
-                return res.status(500).json({ message: "Error updating password" });
-            }
-            res.json({ message: "Password updated successfully" });
+        db.run('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, decoded.id], (err) => {
+            if (err) return res.status(500).json({ message: "Error resetting password" });
+            res.json({ message: "Password reset successful" });
         });
-    });
+    } catch (error) {
+        return res.status(401).json({ message: "Invalid or expired reset token" });
+    }
 });
 
 // --- Property Routes ---
@@ -577,8 +608,6 @@ app.delete('/api/wishlist/:property_id', authenticateToken, (req, res) => {
         }
     );
 });
-
-
 // --- Notification Routes ---
 
 // Get User Notifications
@@ -609,6 +638,7 @@ app.put('/api/notifications/read-all', authenticateToken, (req, res) => {
 });
 
 // Start Server
+console.log('Attempting to start server on port', PORT);
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
 });

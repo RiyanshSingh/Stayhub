@@ -22,6 +22,8 @@ const SignIn = () => {
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
+    const [securityQuestion, setSecurityQuestion] = useState("");
+    const [securityAnswer, setSecurityAnswer] = useState("");
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -35,7 +37,7 @@ const SignIn = () => {
                     description: "You have successfully signed in.",
                 });
             } else {
-                await register(name, email, password);
+                await register(name, email, password, securityQuestion, securityAnswer);
                 toast({
                     title: "Account created!",
                     description: "You have successfully registered and signed in.",
@@ -140,6 +142,38 @@ const SignIn = () => {
                                         />
                                     </div>
                                 </div>
+
+                                {!isLogin && (
+                                    <>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="securityQuestion">Security Question</Label>
+                                            <select
+                                                id="securityQuestion"
+                                                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                                value={securityQuestion}
+                                                onChange={(e) => setSecurityQuestion(e.target.value)}
+                                                required={!isLogin}
+                                            >
+                                                <option value="" disabled>Select a question</option>
+                                                <option value="What is your mother's maiden name?">What is your mother's maiden name?</option>
+                                                <option value="What was the name of your first pet?">What was the name of your first pet?</option>
+                                                <option value="What city were you born in?">What city were you born in?</option>
+                                                <option value="What is your favorite book?">What is your favorite book?</option>
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="securityAnswer">Answer</Label>
+                                            <Input
+                                                id="securityAnswer"
+                                                type="text"
+                                                placeholder="Your answer"
+                                                value={securityAnswer}
+                                                onChange={(e) => setSecurityAnswer(e.target.value)}
+                                                required={!isLogin}
+                                            />
+                                        </div>
+                                    </>
+                                )}
 
                                 <Button type="submit" size="lg" className="w-full text-base" disabled={loading}>
                                     {loading ? (
