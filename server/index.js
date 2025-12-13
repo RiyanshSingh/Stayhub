@@ -1,5 +1,5 @@
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+// sqlite3 will be required lazily/safely
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -17,9 +17,17 @@ const fs = require('fs');
 
 // Database Object
 let db;
+let sqlite3;
 
 // Initialize Database safely
 try {
+    // Try to load sqlite3 module
+    try {
+        sqlite3 = require('sqlite3').verbose();
+    } catch (e) {
+        throw new Error("Failed to load sqlite3 module. It might be missing or incompatible with Vercel environment. Details: " + e.message);
+    }
+
     // Database Setup
     let dbPath = path.resolve(__dirname, 'database.sqlite');
     // Fallback for Vercel: Check process.cwd() if __dirname fails to find it
