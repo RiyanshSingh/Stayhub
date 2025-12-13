@@ -1,6 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { User as SupabaseUser, Session } from "@supabase/supabase-js";
 
 export interface User {
     id: string;
@@ -8,137 +6,143 @@ export interface User {
     email: string;
     avatar: string;
     phone: string | null;
-    address?: string;
-    gender?: string;
+    address?: string; // New field
+    gender?: string; // New field
 }
 
 interface AuthContextType {
     user: User | null;
-    session: Session | null;
     login: (email: string, password: string) => Promise<void>;
     loginWithGoogle: () => Promise<void>;
     register: (name: string, email: string, password: string, securityQuestion?: string, securityAnswer?: string) => Promise<void>;
-    logout: () => Promise<void>;
+    logout: () => void;
     isAuthenticated: boolean;
+    token: string | null;
     updateProfile: (name: string, phone: string, avatar: string, address?: string, gender?: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const mapSupabaseUser = (supabaseUser: SupabaseUser | null): User | null => {
-    if (!supabaseUser) return null;
-    return {
-        id: supabaseUser.id,
-        name: supabaseUser.user_metadata?.name || supabaseUser.user_metadata?.full_name || supabaseUser.email?.split('@')[0] || 'User',
-        email: supabaseUser.email || '',
-        avatar: supabaseUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/initials/svg?seed=${supabaseUser.email}`,
-        phone: supabaseUser.user_metadata?.phone || null,
-        address: supabaseUser.user_metadata?.address,
-        gender: supabaseUser.user_metadata?.gender,
-    };
-};
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
-    const [session, setSession] = useState<Session | null>(null);
+    const [user, setUser] = useState<User | null>(() => {
+        const savedUser = localStorage.getItem("auth_user");
+        return savedUser ? JSON.parse(savedUser) : null;
+    });
 
     useEffect(() => {
-        // Set up auth state listener FIRST
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            (event, session) => {
-                setSession(session);
-                setUser(mapSupabaseUser(session?.user ?? null));
-            }
-        );
-
-        // THEN check for existing session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            setSession(session);
-            setUser(mapSupabaseUser(session?.user ?? null));
-        });
-
-        return () => subscription.unsubscribe();
-    }, []);
+        if (user) {
+            localStorage.setItem("auth_user", JSON.stringify(user));
+        } else {
+            localStorage.removeItem("auth_user");
+        }
+    }, [user]);
 
     const login = async (email: string, password: string) => {
-        const { error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-        });
+        try {
+            const response = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ email, password }),
+            });
 
-        if (error) {
-            throw new Error(error.message);
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Login failed');
+            }
+
+            setUser(data.user);
+            localStorage.setItem("auth_token", data.token);
+        } catch (error) {
+            console.error("Login error:", error);
+            throw error;
         }
     };
 
-    const loginWithGoogle = async () => {
-        const { error } = await supabase.auth.signInWithOAuth({
-            provider: 'google',
-            options: {
-                redirectTo: `${window.location.origin}/`,
-            }
-        });
 
-        if (error) {
-            throw new Error(error.message);
+    const loginWithGoogle = async () => {
+        try {
+            const response = await fetch('/api/auth/google', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}), // Mock request
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.message || 'Google Login failed');
+            }
+
+            setUser(data.user);
+            localStorage.setItem("auth_token", data.token);
+            // Store user data
+            localStorage.setItem("user_data", JSON.stringify(data.user));
+        } catch (error) {
+            console.error("Google Login error:", error);
+            throw error;
         }
     };
 
     const register = async (name: string, email: string, password: string, securityQuestion?: string, securityAnswer?: string) => {
-        const { error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-                emailRedirectTo: `${window.location.origin}/`,
-                data: {
-                    name,
-                    full_name: name,
-                    security_question: securityQuestion,
-                    security_answer: securityAnswer,
-                }
-            }
-        });
+        try {
+            const response = await fetch('/api/auth/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email, password, security_question: securityQuestion, security_answer: securityAnswer }),
+            });
 
-        if (error) {
-            throw new Error(error.message);
+            const data = await response.json();
+
+            if (response.ok) {
+                localStorage.setItem("auth_token", data.token);
+                // Also store user data
+                localStorage.setItem("user_data", JSON.stringify(data.user));
+                setUser(data.user);
+            } else {
+                throw new Error(data.message || 'Registration failed');
+            }
+        } catch (error) {
+            console.error("Registration Error:", error);
+            throw error;
         }
     };
 
     const updateProfile = async (name: string, phone: string, avatar: string, address?: string, gender?: string) => {
-        const { error } = await supabase.auth.updateUser({
-            data: {
-                name,
-                full_name: name,
-                phone,
-                avatar_url: avatar,
-                address,
-                gender,
+        try {
+            const token = localStorage.getItem("auth_token");
+            const response = await fetch('/api/auth/profile', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ name, phone, avatar, address, gender })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setUser(data.user);
+            } else {
+                throw new Error("Failed to update profile");
             }
-        });
-
-        if (error) {
-            throw new Error(error.message);
+        } catch (error) {
+            console.error("Profile update error:", error);
+            throw error;
         }
-
-        // Refresh the user data
-        const { data: { user: updatedUser } } = await supabase.auth.getUser();
-        setUser(mapSupabaseUser(updatedUser));
     };
 
-    const logout = async () => {
-        const { error } = await supabase.auth.signOut();
-        if (error) {
-            throw new Error(error.message);
-        }
+    const logout = () => {
         setUser(null);
-        setSession(null);
+        localStorage.removeItem("auth_token");
     };
 
     return (
         <AuthContext.Provider value={{
             user,
-            session,
-            isAuthenticated: !!session,
+            token: localStorage.getItem("auth_token"),
+            isAuthenticated: !!user,
             login,
             loginWithGoogle,
             register,
