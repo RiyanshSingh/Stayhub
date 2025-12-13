@@ -192,48 +192,24 @@ export const Wishlist = () => {
 
 
 export const Notifications = () => {
-    const { token } = useAuth();
+    const { session } = useAuth();
     const [notifications, setNotifications] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
 
     const fetchNotifications = async () => {
-        try {
-            const res = await fetch('/api/notifications', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setNotifications(data);
-            }
-        } catch (error) {
-            console.error("Error fetching notifications", error);
-        } finally {
-            setLoading(false);
-        }
+        // Mock notifications for now - will be replaced with Supabase table later
+        setNotifications([
+            { id: 1, title: "Welcome to StayHub!", message: "Your account has been created successfully.", is_read: 0, created_at: new Date().toISOString() },
+        ]);
+        setLoading(false);
     };
 
     const markAsRead = async (id: number) => {
-        try {
-            await fetch(`/api/notifications/${id}/read`, {
-                method: 'PUT',
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
-        } catch (error) {
-            console.error("Error marking notification as read", error);
-        }
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: 1 } : n));
     };
 
     const markAllRead = async () => {
-        try {
-            await fetch(`/api/notifications/read-all`, {
-                method: 'PUT',
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
-        } catch (error) {
-            console.error("Error marking all as read", error);
-        }
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
     };
 
     useEffect(() => {
