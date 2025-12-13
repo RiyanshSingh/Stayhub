@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Hotel } from "@/data/mockData";
 import { cn } from "@/lib/utils";
+import { useProperty } from "@/context/PropertyContext";
 
 interface HotelCardProps {
   hotel: Hotel;
@@ -13,7 +14,8 @@ interface HotelCardProps {
 }
 
 const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
-  const [isLiked, setIsLiked] = useState(false);
+  const { wishlist, addToWishlist, removeFromWishlist } = useProperty();
+  const isLiked = wishlist.some(item => item.id === hotel.id);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
 
   const amenityIcons: Record<string, JSX.Element> = {
@@ -34,6 +36,23 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
     return styles[hotel.category] || "bg-muted text-muted-foreground";
   };
 
+  const handleLike = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const token = localStorage.getItem("auth_token");
+    if (!token) {
+      alert("Please sign in to save properties.");
+      return;
+    }
+
+    if (isLiked) {
+      await removeFromWishlist(hotel.id);
+    } else {
+      await addToWishlist(hotel);
+    }
+  };
+
   if (variant === "horizontal") {
     return (
       <Link to={`/hotel/${hotel.slug}`}>
@@ -52,10 +71,7 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
               variant="ghost"
               size="icon"
               className="absolute top-3 right-3 bg-card/80 backdrop-blur-sm hover:bg-card rounded-full"
-              onClick={(e) => {
-                e.preventDefault();
-                setIsLiked(!isLiked);
-              }}
+              onClick={handleLike}
             >
               <Heart
                 className={cn(
@@ -87,7 +103,7 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="text-2xl font-bold text-foreground">
-                  ${hotel.pricePerNight}
+                  ₹{hotel.pricePerNight}
                 </div>
                 <div className="text-sm text-muted-foreground">/night</div>
               </div>
@@ -135,7 +151,7 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
             alt={hotel.name}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
-          
+
           {/* Overlay Gradient */}
           <div className="absolute inset-0 bg-gradient-to-t from-foreground/40 via-transparent to-transparent" />
 
@@ -144,10 +160,7 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
             variant="ghost"
             size="icon"
             className="absolute top-3 right-3 bg-card/80 backdrop-blur-sm hover:bg-card rounded-full z-10"
-            onClick={(e) => {
-              e.preventDefault();
-              setIsLiked(!isLiked);
-            }}
+            onClick={handleLike}
           >
             <Heart
               className={cn(
@@ -223,7 +236,7 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
             </div>
             <div className="text-right">
               <div className="text-xl font-bold text-foreground">
-                ${hotel.pricePerNight}
+                ₹{hotel.pricePerNight}
               </div>
               <div className="text-xs text-muted-foreground">/night</div>
             </div>

@@ -133,7 +133,7 @@
   }
 
   html {
-    scroll-behavior: smooth;
+    /* scroll-behavior: smooth; Removed to allow instant scroll restoration */
   }
 }
 

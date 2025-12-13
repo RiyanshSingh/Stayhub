@@ -3,9 +3,16 @@ import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import HotelCard from "@/components/hotels/HotelCard";
+import { useProperty } from "@/context/PropertyContext";
+
 import { hotels } from "@/data/mockData";
 
 const TrendingHotels = () => {
+  const { properties: dbProperties } = useProperty();
+
+  // Merge, favoring DB properties if they exist, otherwise showing mock
+  const displayProperties = [...dbProperties, ...hotels].slice(0, 3);
+
   return (
     <section className="py-16 md:py-24 bg-secondary/30">
       <div className="container mx-auto px-4">
@@ -33,7 +40,7 @@ const TrendingHotels = () => {
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {hotels.slice(0, 3).map((hotel, index) => (
+          {displayProperties.map((hotel, index) => (
             <motion.div
               key={hotel.id}
               initial={{ opacity: 0, y: 20 }}

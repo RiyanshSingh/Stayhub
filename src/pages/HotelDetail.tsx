@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -21,8 +21,11 @@ import {
   Shield,
   Clock,
   MessageSquare,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/use-toast";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
@@ -30,15 +33,35 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import { hotels, reviews } from "@/data/mockData";
 import { cn } from "@/lib/utils";
+import { useProperty } from "@/context/PropertyContext";
+import { useAuth } from "@/context/AuthContext";
 
 const HotelDetail = () => {
   const { slug } = useParams();
-  const hotel = hotels.find((h) => h.slug === slug);
+  const { properties } = useProperty();
+  const { isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  // Try to find in mock data first, then in context properties
+  let hotel = hotels.find((h) => h.slug === slug);
+
+  if (!hotel) {
+    hotel = properties.find((h) => h.slug === slug);
+  }
+
+  // Fallback: If slug matches an ID (backend lookup style? no, we have all properties in context)
+  // Actually, properties context should have all public properties.
+
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [isLiked, setIsLiked] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
+  const [guests, setGuests] = useState(1);
+  const { toast } = useToast();
+
+
 
   if (!hotel) {
     return (
@@ -55,10 +78,89 @@ const HotelDetail = () => {
     );
   }
 
-  const hotelReviews = reviews.filter((r) => r.hotelId === hotel.id);
+  // Handle missing data for DB properties (e.g., rooms, highlights might be empty/different)
+  // We need to ensure the DB object structure matches the Mock object structure or handle defaults.
+  // The DB property currently has "amenities" and "images". 
+  // Ensure "rooms", "highlights", "policies", "host" exist or use defaults.
+
+  const safeHotel = {
+    ...hotel,
+    pricePerNight: hotel.pricePerNight || (hotel as any).price || 0,
+    rooms: hotel.rooms || [],
+    highlights: hotel.highlights || [],
+    policies: hotel.policies || { checkIn: "3:00 PM", checkOut: "11:00 AM", cancellation: "Free cancellation" },
+    host: hotel.host || { name: "Host", avatar: "", responseRate: 100, responseTime: "1 hour" }
+  };
+
+  // We'll use "safeHotel" instead of "hotel" below
+
+  // Calculate nights
+  const calculateNights = () => {
+    if (!checkIn || !checkOut) return 0;
+    const start = new Date(checkIn);
+    const end = new Date(checkOut);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+  };
+
+  const nights = calculateNights();
+  const cleaningFee = 45;
+  const serviceFee = 89;
+  const extraGuestFeePerNight = 20;
+  const extraGuestFee = (guests > 1 ? (guests - 1) * extraGuestFeePerNight * nights : 0);
+  const totalPrice = safeHotel ? (safeHotel.pricePerNight * nights) + cleaningFee + serviceFee + extraGuestFee : 0;
+
+  const handleReserve = () => {
+    if (!isAuthenticated) {
+      toast({
+        title: "Login Required",
+        description: "Please sign in to reserve this property.",
+      });
+      navigate("/signin", { state: { from: location } });
+      return;
+    }
+
+    if (!checkIn || !checkOut) {
+      toast({
+        title: "Dates required",
+        description: "Please select check-in and check-out dates.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (nights === 0) {
+      toast({
+        title: "Invalid dates",
+        description: "Check-out must be after check-in.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Navigate to summary/payment page instead of direct booking
+    navigate(`/book/${slug}`, {
+      state: {
+        safeHotel,
+        checkIn,
+        checkOut,
+        guests,
+        nights,
+        totalPrice,
+        cleaningFee,
+        serviceFee,
+        extraGuestFee
+      }
+    });
+  };
+
+  const hotelReviews = reviews.filter((r) => r.hotelId === hotel?.id);
 
   const amenityIcons: Record<string, JSX.Element> = {
     WiFi: <Wifi className="w-5 h-5" />,
+    // ... rest of amenities
+
     Parking: <Car className="w-5 h-5" />,
     Restaurant: <Coffee className="w-5 h-5" />,
     Spa: <Sparkles className="w-5 h-5" />,
@@ -67,6 +169,15 @@ const HotelDetail = () => {
     "Beach Access": <span className="text-lg">🏖️</span>,
     "Room Service": <span className="text-lg">🛎️</span>,
   };
+
+  // ... (rest of code using safeHotel)
+  // Note: I will replace the rendering part separately as it is too large for one chunk or use MultiReplace.
+  // Actually, I should use MultiReplace for this.
+  // For now, I will just do a strategic find/replace or just update the variable name in the previous step?
+  // In previous step I defined `safeHotel`.
+  // I need to update the JSX to use `safeHotel`.
+
+  // Re-reading file content... line 71 starts the return.
 
   return (
     <div className="min-h-screen bg-background">
@@ -108,17 +219,17 @@ const HotelDetail = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-2 rounded-2xl overflow-hidden">
             <div className="md:col-span-2 md:row-span-2">
               <img
-                src={hotel.images[0]}
-                alt={hotel.name}
+                src={safeHotel.images[0]}
+                alt={safeHotel.name}
                 className="w-full h-64 md:h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
                 onClick={() => setShowAllPhotos(true)}
               />
             </div>
-            {hotel.images.slice(1, 5).map((image, index) => (
+            {safeHotel.images.slice(1, 5).map((image, index) => (
               <div key={index} className="hidden md:block">
                 <img
                   src={image}
-                  alt={`${hotel.name} ${index + 2}`}
+                  alt={`${safeHotel.name} ${index + 2}`}
                   className="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
                   onClick={() => setShowAllPhotos(true)}
                 />
@@ -145,9 +256,9 @@ const HotelDetail = () => {
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <Badge variant="secondary">
-                    {hotel.category.charAt(0).toUpperCase() + hotel.category.slice(1)}
+                    {safeHotel.category.charAt(0).toUpperCase() + safeHotel.category.slice(1)}
                   </Badge>
-                  {hotel.instantBook && (
+                  {safeHotel.instantBook && (
                     <Badge variant="outline" className="bg-success/10 text-success border-success/20">
                       <CheckCircle className="w-3 h-3 mr-1" />
                       Instant Book
@@ -155,24 +266,24 @@ const HotelDetail = () => {
                   )}
                 </div>
                 <h1 className="text-3xl md:text-4xl font-bold text-foreground mb-3">
-                  {hotel.name}
+                  {safeHotel.name}
                 </h1>
                 <div className="flex flex-wrap items-center gap-4 text-muted-foreground">
                   <div className="flex items-center gap-1">
                     <Star className="w-5 h-5 fill-accent text-accent" />
-                    <span className="font-medium text-foreground">{hotel.rating}</span>
-                    <span>({hotel.reviewCount} reviews)</span>
+                    <span className="font-medium text-foreground">{safeHotel.rating}</span>
+                    <span>({safeHotel.reviewCount} reviews)</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <MapPin className="w-4 h-4" />
-                    {hotel.location}, {hotel.city}, {hotel.country}
+                    {safeHotel.location}, {safeHotel.city}, {safeHotel.country}
                   </div>
                 </div>
               </div>
 
               {/* Highlights */}
               <div className="flex flex-wrap gap-3">
-                {hotel.highlights.map((highlight) => (
+                {safeHotel.highlights.map((highlight) => (
                   <Badge key={highlight} variant="secondary" className="px-4 py-2 text-sm">
                     ✨ {highlight}
                   </Badge>
@@ -185,15 +296,15 @@ const HotelDetail = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <Avatar className="w-14 h-14">
-                    <AvatarImage src={hotel.host.avatar} />
-                    <AvatarFallback>{hotel.host.name[0]}</AvatarFallback>
+                    <AvatarImage src={safeHotel.host.avatar} />
+                    <AvatarFallback>{safeHotel.host.name[0]}</AvatarFallback>
                   </Avatar>
                   <div>
                     <h3 className="font-semibold text-foreground">
-                      Hosted by {hotel.host.name}
+                      Hosted by {safeHotel.host.name}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      {hotel.host.responseRate}% response rate · Responds {hotel.host.responseTime}
+                      {safeHotel.host.responseRate}% response rate · Responds {safeHotel.host.responseTime}
                     </p>
                   </div>
                 </div>
@@ -211,7 +322,7 @@ const HotelDetail = () => {
                   About this property
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">
-                  {hotel.description}
+                  {safeHotel.description}
                 </p>
               </div>
 
@@ -223,7 +334,7 @@ const HotelDetail = () => {
                   What this place offers
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {hotel.amenities.map((amenity) => (
+                  {safeHotel.amenities.map((amenity) => (
                     <div
                       key={amenity}
                       className="flex items-center gap-3 p-3 rounded-xl bg-secondary/50"
@@ -245,64 +356,68 @@ const HotelDetail = () => {
                   Available Rooms
                 </h2>
                 <div className="space-y-4">
-                  {hotel.rooms.map((room) => (
-                    <motion.div
-                      key={room.id}
-                      whileHover={{ scale: 1.01 }}
-                      className={cn(
-                        "p-5 rounded-2xl border-2 transition-all cursor-pointer",
-                        selectedRoom === room.id
-                          ? "border-primary bg-primary/5"
-                          : "border-border bg-card hover:border-primary/30"
-                      )}
-                      onClick={() => setSelectedRoom(room.id)}
-                    >
-                      <div className="flex flex-col md:flex-row gap-4">
-                        <img
-                          src={room.images[0]}
-                          alt={room.title}
-                          className="w-full md:w-40 h-32 object-cover rounded-xl"
-                        />
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between gap-4 mb-2">
-                            <div>
-                              <h3 className="font-semibold text-foreground text-lg">
-                                {room.title}
-                              </h3>
-                              {!room.available && (
-                                <Badge variant="destructive" className="mt-1">
-                                  Sold Out
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-right">
-                              <div className="text-2xl font-bold text-foreground">
-                                ${room.pricePerNight}
+                  {safeHotel.rooms.length > 0 ? (
+                    safeHotel.rooms.map((room) => (
+                      <motion.div
+                        key={room.id}
+                        whileHover={{ scale: 1.01 }}
+                        className={cn(
+                          "p-5 rounded-2xl border-2 transition-all cursor-pointer",
+                          selectedRoom === room.id
+                            ? "border-primary bg-primary/5"
+                            : "border-border bg-card hover:border-primary/30"
+                        )}
+                        onClick={() => setSelectedRoom(room.id)}
+                      >
+                        <div className="flex flex-col md:flex-row gap-4">
+                          <img
+                            src={room.images[0]}
+                            alt={room.title}
+                            className="w-full md:w-40 h-32 object-cover rounded-xl"
+                          />
+                          <div className="flex-1">
+                            <div className="flex items-start justify-between gap-4 mb-2">
+                              <div>
+                                <h3 className="font-semibold text-foreground text-lg">
+                                  {room.title}
+                                </h3>
+                                {!room.available && (
+                                  <Badge variant="destructive" className="mt-1">
+                                    Sold Out
+                                  </Badge>
+                                )}
                               </div>
-                              <div className="text-sm text-muted-foreground">/night</div>
+                              <div className="text-right">
+                                <div className="text-2xl font-bold text-foreground">
+                                  ₹{room.pricePerNight}
+                                </div>
+                                <div className="text-sm text-muted-foreground">/night</div>
+                              </div>
                             </div>
-                          </div>
-                          <p className="text-sm text-muted-foreground mb-3">
-                            {room.description}
-                          </p>
-                          <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <Users className="w-4 h-4" />
-                              {room.capacity} guests
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <BedDouble className="w-4 h-4" />
-                              {room.beds}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Maximize className="w-4 h-4" />
-                              {room.size} m²
-                            </span>
+                            <p className="text-sm text-muted-foreground mb-3">
+                              {room.description}
+                            </p>
+                            <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <Users className="w-4 h-4" />
+                                {room.capacity} guests
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <BedDouble className="w-4 h-4" />
+                                {room.beds}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Maximize className="w-4 h-4" />
+                                {room.size} m²
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                      </motion.div>
+                    ))
+                  ) : (
+                    <p className="text-muted-foreground">Standard room available upon request.</p>
+                  )}
                 </div>
               </div>
 
@@ -316,9 +431,9 @@ const HotelDetail = () => {
                   </h2>
                   <div className="flex items-center gap-2">
                     <Star className="w-5 h-5 fill-accent text-accent" />
-                    <span className="font-semibold text-foreground">{hotel.rating}</span>
+                    <span className="font-semibold text-foreground">{safeHotel.rating}</span>
                     <span className="text-muted-foreground">
-                      ({hotel.reviewCount} reviews)
+                      ({safeHotel.reviewCount} reviews)
                     </span>
                   </div>
                 </div>
@@ -361,7 +476,7 @@ const HotelDetail = () => {
                 </div>
 
                 <Button variant="outline" className="w-full mt-6">
-                  Show all {hotel.reviewCount} reviews
+                  Show all {safeHotel.reviewCount} reviews
                 </Button>
               </div>
 
@@ -379,8 +494,8 @@ const HotelDetail = () => {
                       Check-in/out
                     </h4>
                     <ul className="space-y-2 text-sm text-muted-foreground">
-                      <li>Check-in: {hotel.policies.checkIn}</li>
-                      <li>Check-out: {hotel.policies.checkOut}</li>
+                      <li>Check-in: {safeHotel.policies.checkIn}</li>
+                      <li>Check-out: {safeHotel.policies.checkOut}</li>
                     </ul>
                   </div>
                   <div>
@@ -389,7 +504,7 @@ const HotelDetail = () => {
                       Cancellation
                     </h4>
                     <p className="text-sm text-muted-foreground">
-                      {hotel.policies.cancellation}
+                      {safeHotel.policies.cancellation}
                     </p>
                   </div>
                   <div>
@@ -417,13 +532,13 @@ const HotelDetail = () => {
                   <div className="flex items-baseline justify-between mb-6">
                     <div>
                       <span className="text-3xl font-bold text-foreground">
-                        ${hotel.pricePerNight}
+                        ₹{safeHotel.pricePerNight}
                       </span>
                       <span className="text-muted-foreground"> /night</span>
                     </div>
                     <div className="flex items-center gap-1 text-sm">
                       <Star className="w-4 h-4 fill-accent text-accent" />
-                      <span className="font-medium">{hotel.rating}</span>
+                      <span className="font-medium">{safeHotel.rating}</span>
                     </div>
                   </div>
 
@@ -459,12 +574,35 @@ const HotelDetail = () => {
                       Guests
                     </label>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-foreground">2 guests</span>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                      <span className="text-sm text-foreground">{guests} guests</span>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setGuests(Math.max(1, guests - 1))}
+                          disabled={guests <= 1}
+                        >
+                          <Minus className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={() => setGuests(guests + 1)}
+                        >
+                          <Plus className="w-3 h-3" />
+                        </Button>
+                      </div>
                     </div>
                   </div>
 
-                  <Button variant="accent" size="xl" className="w-full rounded-xl mb-4">
+                  <Button
+                    variant="accent"
+                    size="xl"
+                    className="w-full rounded-xl mb-4"
+                    onClick={handleReserve}
+                  >
                     Reserve
                   </Button>
 
@@ -473,27 +611,35 @@ const HotelDetail = () => {
                   </p>
 
                   {/* Price Breakdown */}
-                  <div className="space-y-3 pt-4 border-t border-border">
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>${hotel.pricePerNight} x 3 nights</span>
-                      <span>${hotel.pricePerNight * 3}</span>
+                  {nights > 0 && (
+                    <div className="space-y-3 pt-4 border-t border-border">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>₹{safeHotel.pricePerNight} x {nights} nights</span>
+                        <span>₹{safeHotel.pricePerNight * nights}</span>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Cleaning fee</span>
+                        <span>₹{cleaningFee}</span>
+                      </div>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Service fee</span>
+                        <span>₹{serviceFee}</span>
+                      </div>
+                      {extraGuestFee > 0 && (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Extra guest fee</span>
+                          <span>₹{extraGuestFee}</span>
+                        </div>
+                      )}
+                      <Separator />
+                      <div className="flex justify-between font-semibold text-foreground">
+                        <span>Total</span>
+                        <span>₹{totalPrice}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Cleaning fee</span>
-                      <span>$45</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Service fee</span>
-                      <span>$89</span>
-                    </div>
-                    <Separator />
-                    <div className="flex justify-between font-semibold text-foreground">
-                      <span>Total</span>
-                      <span>${hotel.pricePerNight * 3 + 45 + 89}</span>
-                    </div>
-                  </div>
+                  )}
 
-                  {hotel.freeCancellation && (
+                  {safeHotel.freeCancellation && (
                     <div className="mt-6 p-3 rounded-xl bg-success/10 border border-success/20">
                       <div className="flex items-center gap-2 text-success text-sm font-medium">
                         <CheckCircle className="w-4 h-4" />

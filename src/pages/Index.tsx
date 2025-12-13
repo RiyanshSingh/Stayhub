@@ -5,6 +5,8 @@ import CategorySection from "@/components/home/CategorySection";
 import TrendingHotels from "@/components/home/TrendingHotels";
 import DestinationsSection from "@/components/home/DestinationsSection";
 import CTASection from "@/components/home/CTASection";
+import FeaturesSection from "@/components/home/FeaturesSection";
+import TestimonialsSection from "@/components/home/TestimonialsSection";
 
 const Index = () => {
   return (
@@ -14,7 +16,9 @@ const Index = () => {
         <HeroSection />
         <CategorySection />
         <TrendingHotels />
+        <FeaturesSection />
         <DestinationsSection />
+        <TestimonialsSection />
         <CTASection />
       </main>
       <Footer />

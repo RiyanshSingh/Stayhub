@@ -73,13 +73,15 @@ const OwnerLanding = () => {
                 <span className="text-primary">thriving business</span>
               </h1>
               <p className="text-lg md:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-                Join 15,000+ hotel owners who trust StayHub to connect with millions 
+                Join 15,000+ hotel owners who trust StayHub to connect with millions
                 of travelers. Easy setup, powerful tools, dedicated support.
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Button variant="accent" size="xl" className="rounded-xl">
-                  Get Started Free
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                <Button variant="accent" size="xl" className="rounded-xl" asChild>
+                  <Link to="/add-property">
+                    Get Started Free
+                    <ArrowRight className="w-5 h-5 ml-2" />
+                  </Link>
                 </Button>
                 <Button variant="outline" size="xl" className="rounded-xl">
                   Learn More
@@ -200,9 +202,11 @@ const OwnerLanding = () => {
           </div>
 
           <div className="text-center mt-12">
-            <Button variant="accent" size="xl" className="rounded-xl">
-              Start Listing Your Property
-              <ArrowRight className="w-5 h-5 ml-2" />
+            <Button variant="accent" size="xl" className="rounded-xl" asChild>
+              <Link to="/add-property">
+                Start Listing Your Property
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Link>
             </Button>
           </div>
         </div>
@@ -220,8 +224,8 @@ const OwnerLanding = () => {
             >
               <div className="text-5xl mb-6">💬</div>
               <blockquote className="text-xl md:text-2xl text-primary-foreground mb-6 leading-relaxed">
-                "StayHub transformed my small boutique hotel into a thriving business. 
-                The booking tools are intuitive, and the support team is incredible. 
+                "StayHub transformed my small boutique hotel into a thriving business.
+                The booking tools are intuitive, and the support team is incredible.
                 My occupancy rate increased by 40% in just 6 months!"
               </blockquote>
               <div className="flex items-center justify-center gap-4">
@@ -258,9 +262,11 @@ const OwnerLanding = () => {
             <p className="text-muted-foreground mb-8 max-w-2xl mx-auto">
               Join thousands of successful hotel owners. No upfront costs, no commitments.
             </p>
-            <Button variant="accent" size="xl" className="rounded-xl">
-              Get Started Free
-              <ArrowRight className="w-5 h-5 ml-2" />
+            <Button variant="accent" size="xl" className="rounded-xl" asChild>
+              <Link to="/add-property">
+                Get Started Free
+                <ArrowRight className="w-5 h-5 ml-2" />
+              </Link>
             </Button>
           </motion.div>
         </div>

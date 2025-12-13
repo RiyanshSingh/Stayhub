@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
@@ -34,20 +34,31 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import HotelCard from "@/components/hotels/HotelCard";
 import { hotels, categories } from "@/data/mockData";
+import { useProperty } from "@/context/PropertyContext";
 
 const SearchPage = () => {
-  const [searchParams] = useSearchParams();
+  const { properties } = useProperty();
+  const searchParams = useSearchParams()[0];
   const locationParam = searchParams.get("location") || "";
   const categoryParam = searchParams.get("category") || "";
 
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
-  const [priceRange, setPriceRange] = useState([0, 1000]);
+  const [priceRange, setPriceRange] = useState([1000]);
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
     categoryParam ? [categoryParam] : []
   );
   const [sortBy, setSortBy] = useState("relevance");
   const [showFilters, setShowFilters] = useState(false);
+
+  // Sync category URL param with state
+  useEffect(() => {
+    if (categoryParam) {
+      setSelectedCategories([categoryParam]);
+    } else {
+      setSelectedCategories([]);
+    }
+  }, [categoryParam]);
 
   const allAmenities = [
     "WiFi",
@@ -61,8 +72,28 @@ const SearchPage = () => {
     "Business Center",
   ];
 
+  // Merge mock hotels with real properties from DB
+  // We need to map DB properties to ensure they have necessary fields if missing
+  const dbPropertiesMapped = properties.map(p => ({
+    ...p,
+    // Ensure strictly required fields for filtering exist if they are missing
+    amenities: p.amenities || [],
+    pricePerNight: p.pricePerNight || 0, // Fallback
+    reviewCount: p.reviewCount || 0,
+    rating: p.rating || 0,
+    category: (['budget', 'boutique', 'business', 'family', 'luxury'].includes(p.category) ? p.category : 'budget') as any,
+    // Mock data structure might require these for the Card
+    images: p.images && p.images.length > 0 ? p.images : ["https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&q=80&w=1000"],
+    location: p.location || '',
+    city: p.city || '',
+    country: p.country || '',
+  }));
+
+  const allHotels = [...hotels, ...dbPropertiesMapped];
+
   const filteredHotels = useMemo(() => {
-    let filtered = hotels.filter((hotel) => {
+    let filtered = allHotels.filter((hotel) => {
+
       // Location filter
       if (locationParam) {
         const search = locationParam.toLowerCase();
@@ -76,10 +107,7 @@ const SearchPage = () => {
       }
 
       // Price filter
-      if (
-        hotel.pricePerNight < priceRange[0] ||
-        hotel.pricePerNight > priceRange[1]
-      ) {
+      if (hotel.pricePerNight > priceRange[0]) {
         return false;
       }
 
@@ -135,13 +163,13 @@ const SearchPage = () => {
   };
 
   const clearFilters = () => {
-    setPriceRange([0, 1000]);
+    setPriceRange([1000]);
     setSelectedAmenities([]);
     setSelectedCategories([]);
   };
 
   const activeFiltersCount =
-    (priceRange[0] > 0 || priceRange[1] < 1000 ? 1 : 0) +
+    (priceRange[0] < 1000 ? 1 : 0) +
     selectedAmenities.length +
     selectedCategories.length;
 
@@ -158,8 +186,8 @@ const SearchPage = () => {
           className="mb-4"
         />
         <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">${priceRange[0]}</span>
-          <span className="text-muted-foreground">${priceRange[1]}+</span>
+          <span className="text-muted-foreground">₹0</span>
+          <span className="text-muted-foreground">₹{priceRange[0]}+</span>
         </div>
       </div>
 
@@ -312,9 +340,9 @@ const SearchPage = () => {
                   <X className="w-3 h-3 ml-1" />
                 </Badge>
               ))}
-              {(priceRange[0] > 0 || priceRange[1] < 1000) && (
+              {priceRange[0] < 1000 && (
                 <Badge variant="secondary" className="cursor-pointer">
-                  ${priceRange[0]} - ${priceRange[1]}
+                  Up to ₹{priceRange[0]}
                 </Badge>
               )}
             </div>
