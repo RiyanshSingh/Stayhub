@@ -7,357 +7,43 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const express = require('express');
-// sqlite3 will be required lazily/safely
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+require('dotenv').config(); // Load env vars
 
+// Supabase Client
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
-const PORT = 5001;
+const PORT = process.env.PORT || 5001;
 const SECRET_KEY = "your-secret-key-change-this-in-production";
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 
-const fs = require('fs');
+// Initialize Supabase
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
 
-// Database Object
-let db;
-let sqlite3;
-
-// Mock Database for Vercel Fallback (when sqlite3 fails)
-class MockDatabase {
-    constructor() {
-        this.users = [];
-        this.properties = [];
-        this.bookings = [];
-        this.reviews = [];
-        this.support_tickets = [];
-        this.messages = [];
-        this.wishlist = [];
-        this.notifications = [];
-        this.lastID = 0;
-        console.log("Initialized In-Memory Mock Database");
-    }
-
-    run(sql, params = [], callback) {
-        // Simplified SQL parser for basic CRUD operations needed for the app
-        const callbackFn = callback || params;
-
-        try {
-            if (sql.startsWith('CREATE TABLE')) {
-                // No-op for mock DB
-                if (callbackFn && typeof callbackFn === 'function') callbackFn.call({ lastID: 0 }, null);
-                return;
-            }
-            if (sql.startsWith('ALTER TABLE')) {
-                // No-op
-                if (callbackFn && typeof callbackFn === 'function') callbackFn.call({ lastID: 0 }, null);
-                return;
-            }
-
-            // INSERT
-            if (sql.startsWith('INSERT INTO')) {
-                const tableMatch = sql.match(/INSERT INTO (\w+)/);
-                const table = tableMatch ? tableMatch[1] : null;
-
-                if (table && this[table]) {
-                    this.lastID++;
-                    const newItem = { id: this.lastID };
-                    // Very basic param mapping - this assumes params match column order exactly
-                    // This is "good enough" for emergency fallback login/register
-
-                    if (table === 'users') {
-                        // keys: name, email, password, avatar, etc
-                        // params: [name, email, hashedPw, avatar, security_question, security_answer]
-                        // We need a manual mapping for critical tables
-                        newItem.name = params[0];
-                        newItem.email = params[1];
-                        newItem.password = params[2];
-                        newItem.avatar = params[3];
-                        if (params.length > 4) newItem.security_question = params[4];
-                        if (params.length > 5) newItem.security_answer = params[5];
-                    } else if (table === 'notifications') {
-                        newItem.user_id = params[0];
-                        newItem.type = params[1];
-                        newItem.message = params[2];
-                        newItem.link = params[3];
-                        newItem.is_read = 0;
-                        newItem.created_at = new Date().toISOString();
-                    } else {
-                        // Generic fallback for other tables (won't cover everything but prevents crash)
-                    }
-
-                    this[table].push(newItem);
-                    if (callbackFn && typeof callbackFn === 'function') callbackFn.call({ lastID: this.lastID }, null);
-                } else {
-                    if (callbackFn && typeof callbackFn === 'function') callbackFn.call({ lastID: 0 }, null);
-                }
-                return;
-            }
-
-            // UPDATE
-            if (sql.startsWith('UPDATE')) {
-                if (callbackFn && typeof callbackFn === 'function') callbackFn.call({ lastID: 0 }, null);
-                return;
-            }
-
-            // DELETE
-            if (sql.startsWith('DELETE')) {
-                if (callbackFn && typeof callbackFn === 'function') callbackFn.call({ lastID: 0 }, null);
-                return;
-            }
-
-            if (callbackFn && typeof callbackFn === 'function') callbackFn.call({ lastID: 0 }, null);
-
-        } catch (e) {
-            console.error("MockDB Run Error:", e);
-            if (callbackFn && typeof callbackFn === 'function') callbackFn(e);
-        }
-    }
-
-    get(sql, params = [], callback) {
-        // SELECT single
-        const callbackFn = callback || params;
-
-        try {
-            if (sql.includes('FROM users WHERE email = ?')) {
-                const email = params[0];
-                const user = this.users.find(u => u.email === email);
-                if (callbackFn) callbackFn(null, user);
-                return;
-            }
-            if (sql.includes('FROM users WHERE id = ?')) {
-                const id = params[0];
-                const user = this.users.find(u => u.id === id);
-                if (callbackFn) callbackFn(null, user);
-                return;
-            }
-            // Fallback
-            if (callbackFn) callbackFn(null, null);
-
-        } catch (e) {
-            if (callbackFn) callbackFn(e);
-        }
-    }
-
-    all(sql, params = [], callback) {
-        // SELECT list
-        const callbackFn = callback || params;
-        if (callbackFn) callbackFn(null, []);
-    }
+if (!supabaseUrl || !supabaseKey) {
+    console.error("Missing SUPABASE_URL or SUPABASE_KEY in environment variables.");
+    console.error("Please create a .env file based on .env.example");
+    // We don't exit process to allow it to run, but DB calls will fail
 }
 
-// Initialize Database safely
-try {
-    // Try to load sqlite3 module
-    try {
-        sqlite3 = require('sqlite3').verbose();
-    } catch (e) {
-        throw new Error("Failed to load sqlite3 module. It might be missing or incompatible with Vercel environment. Details: " + e.message);
-    }
+const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Database Setup
-    let dbPath = path.resolve(__dirname, 'database.sqlite');
-    // Fallback for Vercel: Check process.cwd() if __dirname fails to find it
-    const copyDbFromCwd = path.join(process.cwd(), 'server', 'database.sqlite');
-
-    // Vercel / Serverless Handling: Copy DB to /tmp if we are in a read-only environment
-    if (process.env.VERCEL || process.env.NODE_ENV === 'production') {
-        const tmpDbPath = '/tmp/database.sqlite';
-
-        // Debugging logs for paths
-        console.log('Environment: Production/Vercel');
-        console.log('__dirname DB Path:', dbPath);
-        console.log('process.cwd() DB Path:', copyDbFromCwd);
-
-        // If the tmp DB doesn't exist, copy the initial one from source
-        if (!fs.existsSync(tmpDbPath)) {
-            // Try __dirname first
-            if (fs.existsSync(dbPath)) {
-                fs.copyFileSync(dbPath, tmpDbPath);
-                console.log('Copied database from __dirname to /tmp');
-            }
-            // Try process.cwd() fallback
-            else if (fs.existsSync(copyDbFromCwd)) {
-                fs.copyFileSync(copyDbFromCwd, tmpDbPath);
-                console.log('Copied database from process.cwd() to /tmp');
-            } else {
-                console.log('Original database not found in either location, creating new empty one in /tmp');
-            }
-        }
-        dbPath = tmpDbPath;
-    }
-
-    db = new sqlite3.Database(dbPath, (err) => {
-        if (err) {
-            console.error('Error opening database', err.message);
-            throw err; // Re-throw to be caught by outer block
-        } else {
-            console.log(`Connected to the SQLite database at ${dbPath}`);
-            console.log('Initializing tables...');
-
-            // ... (Table creation logic stays here or is called here)
-            // For brevity in this replacement, we trust the table creation continues if no error
-            initializeTables(db);
-        }
-    });
-
-} catch (error) {
-    console.error("DATABASE INITIALIZATION ERROR:", error.message);
-    console.log("Switching to In-Memory Mock Database for safety...");
-    db = new MockDatabase();
-
-    // Initialize default tables logic for MockDB (mostly empty)
-    initializeTables(db);
-}
-
-// Helper function to keep the table creation code organized
-function initializeTables(db) {
-    // Create table
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        email TEXT UNIQUE,
-        password TEXT,
-        avatar TEXT
-    )`, (err) => {
-        if (!err) {
-            // Attempt to add phone column if it doesn't exist (migration)
-            db.run(`ALTER TABLE users ADD COLUMN phone TEXT`, (err) => { /* Ignore */ });
-            db.run(`ALTER TABLE users ADD COLUMN address TEXT`, (err) => { /* Ignore */ });
-            db.run(`ALTER TABLE users ADD COLUMN gender TEXT`, (err) => { /* Ignore */ });
-            db.run(`ALTER TABLE users ADD COLUMN security_question TEXT`, (err) => { /* Ignore */ });
-            db.run(`ALTER TABLE users ADD COLUMN security_answer TEXT`, (err) => { /* Ignore */ });
-        }
-    });
-
-    // Create properties table
-    db.run(`CREATE TABLE IF NOT EXISTS properties (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        name TEXT,
-        slug TEXT UNIQUE,
-        description TEXT,
-        price REAL,
-        location TEXT,
-        city TEXT,
-        country TEXT,
-        type TEXT,
-        amenities TEXT,
-        images TEXT,
-        currency TEXT,
-        rating REAL DEFAULT 0,
-        reviewCount INTEGER DEFAULT 0,
-        category TEXT,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )`);
-
-    // Create bookings table
-    db.run(`CREATE TABLE IF NOT EXISTS bookings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        property_id INTEGER,
-        property_name TEXT,
-        property_image TEXT,
-        check_in TEXT,
-        check_out TEXT,
-        guests INTEGER,
-        total_price REAL,
-        nights INTEGER,
-        status TEXT DEFAULT 'confirmed',
-        cancellation_reason TEXT,
-        refund_status TEXT,
-        payment_method TEXT,
-        transaction_id TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(property_id) REFERENCES properties(id)
-    )`, (err) => {
-        if (!err) {
-            // Migration: Add new columns if they don't exist
-            const columnsToAdd = [
-                "ALTER TABLE bookings ADD COLUMN cancellation_reason TEXT",
-                "ALTER TABLE bookings ADD COLUMN refund_status TEXT",
-                "ALTER TABLE bookings ADD COLUMN payment_method TEXT",
-                "ALTER TABLE bookings ADD COLUMN transaction_id TEXT"
-            ];
-            columnsToAdd.forEach(sql => {
-                db.run(sql, (err) => { /* Ignore errors if column exists */ });
-            });
-        }
-    });
-
-    // Create reviews table
-    db.run(`CREATE TABLE IF NOT EXISTS reviews (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        property_id INTEGER,
-        booking_id INTEGER,
-        rating REAL,
-        comment TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(property_id) REFERENCES properties(id),
-        FOREIGN KEY(booking_id) REFERENCES bookings(id)
-    )`);
-
-    // Create support tickets table
-    db.run(`CREATE TABLE IF NOT EXISTS support_tickets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        booking_id INTEGER,
-        subject TEXT,
-        status TEXT DEFAULT 'Open',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(booking_id) REFERENCES bookings(id)
-    )`);
-
-    // Create messages table
-    db.run(`CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ticket_id INTEGER,
-        sender TEXT,
-        text TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(ticket_id) REFERENCES support_tickets(id)
-    )`);
-
-    // Create wishlist table
-    db.run(`CREATE TABLE IF NOT EXISTS wishlist (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        property_id INTEGER,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id),
-        FOREIGN KEY(property_id) REFERENCES properties(id),
-        UNIQUE(user_id, property_id)
-    )`);
-
-    // Create notifications table
-    db.run(`CREATE TABLE IF NOT EXISTS notifications (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        type TEXT,
-        message TEXT,
-        is_read INTEGER DEFAULT 0,
-        link TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    )`);
-}
+console.log(`Connected to Supabase at ${supabaseUrl}`);
 
 // Helper to create notification
-const createNotification = (userId, type, message, link = null) => {
-    db.run(`INSERT INTO notifications (user_id, type, message, link) VALUES (?, ?, ?, ?)`,
-        [userId, type, message, link],
-        (err) => {
-            if (err) console.error("Error creating notification:", err);
-        }
-    );
+const createNotification = async (userId, type, message, link = null) => {
+    const { error } = await supabase
+        .from('notifications')
+        .insert([{ user_id: userId, type, message, link, is_read: 0 }]);
+
+    if (error) console.error("Error creating notification:", error);
 };
 
 // Helper function to generate avatar
@@ -379,8 +65,6 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-// ... (existing helper and auth middleware)
-
 // Routes
 
 // Register
@@ -391,32 +75,39 @@ app.post('/api/auth/register', async (req, res) => {
         return res.status(400).json({ message: "All fields are required" });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const avatar = getAvatar(email);
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const avatar = getAvatar(email);
 
-    const sql = `INSERT INTO users (name, email, password, avatar) VALUES (?, ?, ?, ?)`;
+        const { data, error } = await supabase
+            .from('users')
+            .insert([{ name, email, password: hashedPassword, avatar }])
+            .select()
+            .single();
 
-    db.run(sql, [name, email, hashedPassword, avatar], function (err) {
-        if (err) {
-            if (err.message.includes('UNIQUE constraint failed')) {
+        if (error) {
+            if (error.code === '23505') { // Postgres unique violation code
                 return res.status(400).json({ message: "Email already exists" });
             }
-            return res.status(500).json({ message: "Error registering user" });
+            throw error;
         }
 
         // Auto-login after register
-        const token = jwt.sign({ id: this.lastID, email }, SECRET_KEY, { expiresIn: '24h' });
+        const token = jwt.sign({ id: data.id, email }, SECRET_KEY, { expiresIn: '24h' });
         res.status(201).json({
             message: "User registered successfully",
             token,
-            user: { id: this.lastID, name, email, avatar, phone: null }
+            user: { id: data.id, name, email, avatar, phone: null }
         });
-    });
+
+    } catch (err) {
+        console.error("Register Error:", err);
+        res.status(500).json({ message: "Error registering user" });
+    }
 });
 
 // Mock Google Login
-app.post('/api/auth/google', (req, res) => {
-    // Simulate successful Google Login
+app.post('/api/auth/google', async (req, res) => {
     const mockGoogleUser = {
         name: "Google User",
         email: "user@gmail.com",
@@ -424,9 +115,17 @@ app.post('/api/auth/google', (req, res) => {
         phone: null
     };
 
-    // Check if user exists, else create (Mock)
-    db.get('SELECT * FROM users WHERE email = ?', [mockGoogleUser.email], (err, user) => {
-        if (err) return res.status(500).json({ message: "Database error" });
+    try {
+        // Check if user exists
+        let { data: user, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', mockGoogleUser.email)
+            .single();
+
+        if (!user && error && error.code !== 'PGRST116') { // PGRST116 is "not found"
+            throw error;
+        }
 
         if (user) {
             // Login existing
@@ -434,42 +133,52 @@ app.post('/api/auth/google', (req, res) => {
             return res.json({
                 message: "Google Login successful",
                 token,
-                user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar, phone: user.phone }
+                user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar, phone: user.phone || null }
             });
         } else {
             // Register new
-            db.run('INSERT INTO users (name, email, password, avatar) VALUES (?, ?, ?, ?)',
-                [mockGoogleUser.name, mockGoogleUser.email, 'google-oauth-mock-pass', mockGoogleUser.avatar],
-                function (err) {
-                    if (err) return res.status(500).json({ message: "Error creating Google user" });
+            const { data: newUser, error: createError } = await supabase
+                .from('users')
+                .insert([{
+                    name: mockGoogleUser.name,
+                    email: mockGoogleUser.email,
+                    password: 'google-oauth-mock-pass',
+                    avatar: mockGoogleUser.avatar
+                }])
+                .select()
+                .single();
 
-                    const token = jwt.sign({ id: this.lastID, email: mockGoogleUser.email }, SECRET_KEY, { expiresIn: '24h' });
-                    return res.status(201).json({
-                        message: "Google Login successful",
-                        token,
-                        user: { id: this.lastID, ...mockGoogleUser }
-                    });
-                }
-            );
+            if (createError) throw createError;
+
+            const token = jwt.sign({ id: newUser.id, email: mockGoogleUser.email }, SECRET_KEY, { expiresIn: '24h' });
+            return res.status(201).json({
+                message: "Google Login successful",
+                token,
+                user: { id: newUser.id, ...mockGoogleUser }
+            });
         }
-    });
+    } catch (err) {
+        console.error("Google Login Error:", err);
+        res.status(500).json({ message: "Database error" });
+    }
 });
 
 // Login
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
         return res.status(400).json({ message: "Email and password are required" });
     }
 
-    const sql = `SELECT * FROM users WHERE email = ?`;
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('*')
+            .eq('email', email)
+            .single();
 
-    db.get(sql, [email], async (err, user) => {
-        if (err) {
-            return res.status(500).json({ message: "Database error" });
-        }
-        if (!user) {
+        if (error || !user) {
             return res.status(401).json({ message: "Invalid email or password" });
         }
 
@@ -487,54 +196,79 @@ app.post('/api/auth/login', (req, res) => {
                 name: user.name,
                 email: user.email,
                 avatar: user.avatar,
-                phone: user.phone
+                phone: user.phone || null
             }
         });
-    });
+    } catch (err) {
+        console.error("Login Error:", err);
+        res.status(500).json({ message: "Database error" });
+    }
 });
 
 // Update Profile
-app.put('/api/auth/profile', authenticateToken, (req, res) => {
+app.put('/api/auth/profile', authenticateToken, async (req, res) => {
     const userId = req.user.id;
     const { name, phone, avatar, address, gender, security_question, security_answer } = req.body;
 
-    db.run(`UPDATE users SET name = ?, phone = ?, avatar = ?, address = ?, gender = ?, security_question = ?, security_answer = ? WHERE id = ?`,
-        [name, phone, avatar, address, gender, security_question, security_answer, userId],
-        function (err) {
-            if (err) {
-                return res.status(500).json({ message: "Error updating profile" });
-            }
+    try {
+        const { error } = await supabase
+            .from('users')
+            .update({ name, phone, avatar, address, gender, security_question, security_answer })
+            .eq('id', userId);
 
-            db.get(`SELECT id, name, email, avatar, phone, address, gender, security_question FROM users WHERE id = ?`, [userId], (err, updatedUser) => {
-                if (err || !updatedUser) {
-                    return res.status(500).json({ message: "Error fetching updated profile" });
-                }
-                res.json({ message: "Profile updated", user: updatedUser });
-                createNotification(req.user.id, 'profile', `Profile updated successfully`, `/dashboard/profile`);
-            });
-        });
+        if (error) throw error;
+
+        const { data: updatedUser, error: fetchError } = await supabase
+            .from('users')
+            .select('id, name, email, avatar, phone, address, gender, security_question')
+            .eq('id', userId)
+            .single();
+
+        if (fetchError) throw fetchError;
+
+        res.json({ message: "Profile updated", user: updatedUser });
+        createNotification(req.user.id, 'profile', `Profile updated successfully`, `/dashboard/profile`);
+
+    } catch (err) {
+        console.error("Profile Update Error:", err);
+        res.status(500).json({ message: "Error updating profile" });
+    }
 });
+
 // 1. Init Forgot Password - Get Security Question
-app.post('/api/auth/forgot-password-init', (req, res) => {
+app.post('/api/auth/forgot-password-init', async (req, res) => {
     const { email } = req.body;
-    db.get('SELECT id, security_question FROM users WHERE email = ?', [email], (err, user) => {
-        if (err) return res.status(500).json({ message: "Server error" });
-        if (!user) return res.status(404).json({ message: "User not found" });
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('id, security_question')
+            .eq('email', email)
+            .single();
+
+        if (error || !user) return res.status(404).json({ message: "User not found" });
 
         if (!user.security_question) {
             return res.status(400).json({ message: "No security question set for this account. Please contact support." });
         }
 
         res.json({ security_question: user.security_question });
-    });
+    } catch (err) {
+        console.error("Forgot Password Init Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
 });
 
 // 2. Verify Security Answer
-app.post('/api/auth/verify-security-answer', (req, res) => {
+app.post('/api/auth/verify-security-answer', async (req, res) => {
     const { email, answer } = req.body;
-    db.get('SELECT id, security_answer FROM users WHERE email = ?', [email], (err, user) => {
-        if (err) return res.status(500).json({ message: "Server error" });
-        if (!user) return res.status(404).json({ message: "User not found" });
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('id, security_answer')
+            .eq('email', email)
+            .single();
+
+        if (error || !user) return res.status(404).json({ message: "User not found" });
 
         // Simple case-insensitive comparison
         if (user.security_answer && user.security_answer.toLowerCase().trim() === answer.toLowerCase().trim()) {
@@ -544,7 +278,10 @@ app.post('/api/auth/verify-security-answer', (req, res) => {
         } else {
             return res.status(401).json({ message: "Incorrect answer" });
         }
-    });
+    } catch (err) {
+        console.error("Verify Security Answer Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
 });
 
 
@@ -563,318 +300,438 @@ app.post('/api/auth/reset-password', async (req, res) => {
         // Update password
         const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-        db.run('UPDATE users SET password = ? WHERE id = ?', [hashedPassword, decoded.id], (err) => {
-            if (err) return res.status(500).json({ message: "Error resetting password" });
-            res.json({ message: "Password reset successful" });
-        });
+        const { error } = await supabase
+            .from('users')
+            .update({ password: hashedPassword })
+            .eq('id', decoded.id);
+
+        if (error) throw error;
+
+        res.json({ message: "Password reset successful" });
     } catch (error) {
-        return res.status(401).json({ message: "Invalid or expired reset token" });
+        console.error("Reset Password Error:", error);
+        return res.status(401).json({ message: "Invalid or expired reset token or Server Error" });
     }
 });
 
 // --- Property Routes ---
 
 // Create Property
-app.post('/api/properties', authenticateToken, (req, res) => {
+app.post('/api/properties', authenticateToken, async (req, res) => {
     const { name, description, price, location, city, country, type, amenities, images, currency, category } = req.body;
 
     // Generate slug from name
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now();
 
-    const sql = `INSERT INTO properties (user_id, name, slug, description, price, location, city, country, type, amenities, images, currency, category) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    // Supabase handles JSON natively (assuming JSONB columns), so we pass arrays directly
+    // If we used TEXT columns, we would strictly stringify, but let's assume JSONB support as per schema
 
-    // Store arrays as JSON strings
-    const amenitiesStr = JSON.stringify(amenities || []);
-    const imagesStr = JSON.stringify(images || []);
+    try {
+        const { data, error } = await supabase
+            .from('properties')
+            .insert([{
+                user_id: req.user.id,
+                name,
+                slug,
+                description,
+                price,
+                location,
+                city,
+                country,
+                type,
+                amenities, // Pass array directly
+                images,    // Pass array directly
+                currency,
+                category
+            }])
+            .select()
+            .single();
 
-    db.run(sql, [req.user.id, name, slug, description, price, location, city, country, type, amenitiesStr, imagesStr, currency, category], function (err) {
-        if (err) {
-            console.error(err);
-            return res.status(500).json({ message: "Error creating property" });
-        }
-        res.status(201).json({ message: "Property created", id: this.lastID, slug });
-    });
+        if (error) throw error;
+
+        res.status(201).json({ message: "Property created", id: data.id, slug: data.slug });
+    } catch (err) {
+        console.error("Create Property Error:", err);
+        res.status(500).json({ message: "Error creating property" });
+    }
 });
 
 // Get User's Properties
-app.get('/api/properties/user', authenticateToken, (req, res) => {
-    const sql = `SELECT * FROM properties WHERE user_id = ? ORDER BY id DESC`;
-    db.all(sql, [req.user.id], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ message: "Database error" });
-        }
-        // Parse JSON strings back to arrays
-        const properties = rows.map(row => ({
-            ...row,
-            amenities: JSON.parse(row.amenities || '[]'),
-            images: JSON.parse(row.images || '[]')
-        }));
+app.get('/api/properties/user', authenticateToken, async (req, res) => {
+    try {
+        const { data: properties, error } = await supabase
+            .from('properties')
+            .select('*')
+            .eq('user_id', req.user.id)
+            .order('id', { ascending: false });
+
+        if (error) throw error;
+
+        // Note: parsing JSON 'amenities'/'images' is automatic with Supabase if columns are JSONB
         res.json(properties);
-    });
+    } catch (err) {
+        console.error("Get User Properties Error:", err);
+        res.status(500).json({ message: "Database error" });
+    }
 });
 
 // Get All Properties (For Explore)
-app.get('/api/properties', (req, res) => {
-    const sql = `SELECT * FROM properties ORDER BY id DESC`;
-    db.all(sql, [], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ message: "Database error" });
-        }
-        const properties = rows.map(row => ({
-            ...row,
-            amenities: JSON.parse(row.amenities || '[]'),
-            images: JSON.parse(row.images || '[]')
-        }));
+app.get('/api/properties', async (req, res) => {
+    try {
+        const { data: properties, error } = await supabase
+            .from('properties')
+            .select('*')
+            .order('id', { ascending: false });
+
+        if (error) throw error;
         res.json(properties);
-    });
+    } catch (err) {
+        console.error("Get All Properties Error:", err);
+        res.status(500).json({ message: "Database error" });
+    }
 });
 
 // Update Property
-app.put('/api/properties/:id', authenticateToken, (req, res) => {
+app.put('/api/properties/:id', authenticateToken, async (req, res) => {
     const { name, description, price, location, city, country, type, amenities, images, currency, category } = req.body;
     const propertyId = req.params.id;
 
-    // Check ownership first
-    db.get(`SELECT user_id FROM properties WHERE id = ?`, [propertyId], (err, row) => {
-        if (err || !row) return res.status(404).json({ message: "Property not found" });
-        if (row.user_id !== req.user.id) return res.status(403).json({ message: "Unauthorized" });
+    try {
+        // Check ownership
+        const { data: property, error: fetchError } = await supabase
+            .from('properties')
+            .select('user_id')
+            .eq('id', propertyId)
+            .single();
 
-        const sql = `UPDATE properties SET name=?, description=?, price=?, location=?, city=?, country=?, type=?, amenities=?, images=?, currency=?, category=? WHERE id=?`;
-        const amenitiesStr = JSON.stringify(amenities || []);
-        const imagesStr = JSON.stringify(images || []);
+        if (fetchError || !property) return res.status(404).json({ message: "Property not found" });
+        if (property.user_id != req.user.id) return res.status(403).json({ message: "Unauthorized" });
 
-        db.run(sql, [name, description, price, location, city, country, type, amenitiesStr, imagesStr, currency, category, propertyId], function (err) {
-            if (err) return res.status(500).json({ message: "Error updating property" });
-            res.json({ message: "Property updated successfully" });
-        });
-    });
+        const { error } = await supabase
+            .from('properties')
+            .update({ name, description, price, location, city, country, type, amenities, images, currency, category })
+            .eq('id', propertyId);
+
+        if (error) throw error;
+        res.json({ message: "Property updated successfully" });
+
+    } catch (err) {
+        console.error("Update Property Error:", err);
+        res.status(500).json({ message: "Error updating property" });
+    }
 });
 
 // Delete Property
-app.delete('/api/properties/:id', authenticateToken, (req, res) => {
+app.delete('/api/properties/:id', authenticateToken, async (req, res) => {
     const propertyId = req.params.id;
 
-    db.get(`SELECT user_id FROM properties WHERE id = ?`, [propertyId], (err, row) => {
-        if (err || !row) return res.status(404).json({ message: "Property not found" });
-        if (row.user_id !== req.user.id) return res.status(403).json({ message: "Unauthorized" });
+    try {
+        // Check ownership
+        const { data: property, error: fetchError } = await supabase
+            .from('properties')
+            .select('user_id')
+            .eq('id', propertyId)
+            .single();
 
-        db.run(`DELETE FROM properties WHERE id = ?`, [propertyId], function (err) {
-            if (err) return res.status(500).json({ message: "Error deleting property" });
-            res.json({ message: "Property deleted successfully" });
-        });
-    });
+        if (fetchError || !property) return res.status(404).json({ message: "Property not found" });
+        if (property.user_id != req.user.id) return res.status(403).json({ message: "Unauthorized" });
+
+        const { error } = await supabase
+            .from('properties')
+            .delete()
+            .eq('id', propertyId);
+
+        if (error) throw error;
+        res.json({ message: "Property deleted successfully" });
+    } catch (err) {
+        console.error("Delete Property Error:", err);
+        res.status(500).json({ message: "Error deleting property" });
+    }
 });
 
 // --- Booking Routes ---
 
 // Create Booking
-app.post('/api/bookings', authenticateToken, (req, res) => {
+app.post('/api/bookings', authenticateToken, async (req, res) => {
     const { property_id, property_name, property_image, check_in, check_out, guests, total_price, nights, payment_method } = req.body;
     const transaction_id = 'TXN' + Date.now(); // Mock transaction ID
 
-    const sql = `INSERT INTO bookings (user_id, property_id, property_name, property_image, check_in, check_out, guests, total_price, nights, payment_method, transaction_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+    try {
+        const { data, error } = await supabase
+            .from('bookings')
+            .insert([{
+                user_id: req.user.id,
+                property_id,
+                property_name,
+                property_image,
+                check_in,
+                check_out,
+                guests,
+                total_price,
+                nights,
+                payment_method,
+                transaction_id
+            }])
+            .select()
+            .single();
 
-    db.run(sql, [req.user.id, property_id, property_name, property_image, check_in, check_out, guests, total_price, nights, payment_method, transaction_id], function (err) {
-        if (err) {
-            console.error(err);
-            return res.status(500).json({ message: "Error creating booking" });
-        }
-        res.status(201).json({ message: "Booking created", id: this.lastID });
-        createNotification(req.user.id, 'booking', `Booking confirmed for ${property_name}`, `/dashboard/bookings/${this.lastID}`);
-    });
+        if (error) throw error;
+
+        res.status(201).json({ message: "Booking created", id: data.id });
+        createNotification(req.user.id, 'booking', `Booking confirmed for ${property_name}`, `/dashboard/bookings/${data.id}`);
+
+    } catch (err) {
+        console.error("Create Booking Error:", err);
+        res.status(500).json({ message: "Error creating booking" });
+    }
 });
 
 // Get User Bookings
-app.get('/api/bookings/user', authenticateToken, (req, res) => {
-    const sql = `SELECT * FROM bookings WHERE user_id = ? ORDER BY created_at DESC`;
-    db.all(sql, [req.user.id], (err, rows) => {
-        if (err) {
-            return res.status(500).json({ message: "Database error" });
-        }
-        res.json(rows);
-    });
+app.get('/api/bookings/user', authenticateToken, async (req, res) => {
+    try {
+        const { data: bookings, error } = await supabase
+            .from('bookings')
+            .select('*')
+            .eq('user_id', req.user.id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(bookings);
+    } catch (err) {
+        console.error("Get User Bookings Error:", err);
+        res.status(500).json({ message: "Database error" });
+    }
 });
 
 // Get Single Booking Details
-app.get('/api/bookings/:id', authenticateToken, (req, res) => {
+app.get('/api/bookings/:id', authenticateToken, async (req, res) => {
     const bookingId = req.params.id;
     const userId = req.user.id;
 
-    // Get booking
-    db.get(`SELECT * FROM bookings WHERE id = ? AND user_id = ?`, [bookingId, userId], (err, booking) => {
-        if (err || !booking) return res.status(404).json({ message: "Booking not found" });
+    try {
+        // Get booking
+        const { data: booking, error: bookingError } = await supabase
+            .from('bookings')
+            .select('*')
+            .eq('id', bookingId)
+            .eq('user_id', userId)
+            .single();
+
+        if (bookingError || !booking) return res.status(404).json({ message: "Booking not found" });
 
         // Get property details
-        db.get(`SELECT * FROM properties WHERE id = ?`, [booking.property_id], (err, property) => {
-            const propertyData = property ? {
-                ...property,
-                amenities: JSON.parse(property.amenities || '[]'),
-                images: JSON.parse(property.images || '[]')
-            } : null;
+        const { data: property, error: propertyError } = await supabase
+            .from('properties')
+            .select('*')
+            .eq('id', booking.property_id)
+            .single();
 
-            // Get review if exists
-            db.get(`SELECT * FROM reviews WHERE booking_id = ?`, [bookingId], (err, review) => {
+        // Get review
+        const { data: review } = await supabase
+            .from('reviews')
+            .select('*')
+            .eq('booking_id', bookingId)
+            .maybeSingle();
 
-                // Get support tickets
-                db.all(`SELECT * FROM support_tickets WHERE booking_id = ?`, [bookingId], (err, tickets) => {
+        // Get tickets
+        const { data: tickets } = await supabase
+            .from('support_tickets')
+            .select('*')
+            .eq('booking_id', bookingId);
 
-                    res.json({
-                        ...booking,
-                        property: propertyData,
-                        review: review || null,
-                        tickets: tickets || []
-                    });
-                });
-            });
+        res.json({
+            ...booking,
+            property: property || null, // property handles its own JSONB
+            review: review || null,
+            tickets: tickets || []
         });
-    });
+
+    } catch (err) {
+        console.error("Get Booking Details Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
 });
 
 // Cancel Booking
-app.post('/api/bookings/:id/cancel', authenticateToken, (req, res) => {
+app.post('/api/bookings/:id/cancel', authenticateToken, async (req, res) => {
     const bookingId = req.params.id;
     const { reason } = req.body;
 
-    db.run(`UPDATE bookings SET status = 'cancelled', cancellation_reason = ?, refund_status = 'processing' WHERE id = ? AND user_id = ?`,
-        [reason, bookingId, req.user.id],
-        function (err) {
-            if (err) return res.status(500).json({ message: "Error cancelling booking" });
-            res.json({ message: "Booking cancelled successfully" });
-            createNotification(req.user.id, 'booking', `Booking cancelled`, `/dashboard/bookings/${bookingId}`);
-        }
-    );
+    try {
+        const { error } = await supabase
+            .from('bookings')
+            .update({ status: 'cancelled', cancellation_reason: reason, refund_status: 'processing' })
+            .eq('id', bookingId)
+            .eq('user_id', req.user.id);
+
+        if (error) throw error;
+
+        res.json({ message: "Booking cancelled successfully" });
+        createNotification(req.user.id, 'booking', `Booking cancelled`, `/dashboard/bookings/${bookingId}`);
+
+    } catch (err) {
+        console.error("Cancel Booking Error:", err);
+        res.status(500).json({ message: "Error cancelling booking" });
+    }
 });
 
 // Post Review
-app.post('/api/reviews', authenticateToken, (req, res) => {
+app.post('/api/reviews', authenticateToken, async (req, res) => {
     const { property_id, booking_id, rating, comment } = req.body;
 
-    // Verify booking matches user
-    db.get(`SELECT * FROM bookings WHERE id = ? AND user_id = ?`, [booking_id, req.user.id], (err, booking) => {
-        if (err || !booking) return res.status(403).json({ message: "Invalid booking" });
+    try {
+        // Verify booking matches user
+        const { data: booking, error: bookingError } = await supabase
+            .from('bookings')
+            .select('id')
+            .eq('id', booking_id)
+            .eq('user_id', req.user.id)
+            .single();
 
-        db.run(`INSERT INTO reviews (user_id, property_id, booking_id, rating, comment) VALUES (?, ?, ?, ?, ?)`,
-            [req.user.id, property_id, booking_id, rating, comment],
-            function (err) {
-                if (err) return res.status(500).json({ message: "Error submitting review" });
+        if (bookingError || !booking) return res.status(403).json({ message: "Invalid booking" });
 
-                // Update booking status to completed/reviewed if needed, or just let UI handle it
-                createNotification(req.user.id, 'review', `Review submitted for booking #${booking_id}`, `/dashboard`);
-                res.status(201).json({ message: "Review submitted", id: this.lastID });
-            }
-        );
-    });
+        const { data, error } = await supabase
+            .from('reviews')
+            .insert([{ user_id: req.user.id, property_id, booking_id, rating, comment }])
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        createNotification(req.user.id, 'review', `Review submitted for booking #${booking_id}`, `/dashboard`);
+        res.status(201).json({ message: "Review submitted", id: data.id });
+    } catch (err) {
+        console.error("Submit Review Error:", err);
+        res.status(500).json({ message: "Error submitting review" });
+    }
 });
 
 // Create Support Ticket
-app.post('/api/support/tickets', authenticateToken, (req, res) => {
+app.post('/api/support/tickets', authenticateToken, async (req, res) => {
     const { booking_id, subject, message } = req.body;
 
-    db.run(`INSERT INTO support_tickets (user_id, booking_id, subject) VALUES (?, ?, ?)`,
-        [req.user.id, booking_id, subject],
-        function (err) {
-            if (err) return res.status(500).json({ message: "Error creating ticket" });
-            const ticketId = this.lastID;
+    try {
+        const { data: ticket, error: ticketError } = await supabase
+            .from('support_tickets')
+            .insert([{ user_id: req.user.id, booking_id, subject }])
+            .select()
+            .single();
 
-            // Add initial message
-            db.run(`INSERT INTO messages (ticket_id, sender, text) VALUES (?, 'user', ?)`,
-                [ticketId, message],
-                (err) => {
-                    res.status(201).json({ message: "Ticket created", id: ticketId });
-                    createNotification(req.user.id, 'support', `Support ticket #${ticketId} created`, `/dashboard`);
-                }
-            );
-        }
-    );
+        if (ticketError) throw ticketError;
+
+        const ticketId = ticket.id;
+
+        const { error: msgError } = await supabase
+            .from('messages')
+            .insert([{ ticket_id: ticketId, sender: 'user', text: message }]);
+
+        if (msgError) throw msgError;
+
+        res.status(201).json({ message: "Ticket created", id: ticketId });
+        createNotification(req.user.id, 'support', `Support ticket #${ticketId} created`, `/dashboard`);
+
+    } catch (err) {
+        console.error("Create Ticket Error:", err);
+        res.status(500).json({ message: "Error creating ticket" });
+    }
 });
-
 
 // --- Wishlist Routes ---
 
 // Get User Wishlist
-app.get('/api/wishlist', authenticateToken, (req, res) => {
-    const sql = `
-        SELECT p.*, w.id as wishlist_id, w.created_at as saved_at 
-        FROM wishlist w
-        JOIN properties p ON w.property_id = p.id
-        WHERE w.user_id = ?
-        ORDER BY w.created_at DESC
-    `;
-    db.all(sql, [req.user.id], (err, rows) => {
-        if (err) return res.status(500).json({ message: "Database error" });
+app.get('/api/wishlist', authenticateToken, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('wishlist')
+            .select(`
+                wishlist_id:id,
+                saved_at:created_at,
+                property:properties (*)
+            `)
+            .eq('user_id', req.user.id);
 
-        const wishlist = rows.map(row => ({
-            ...row,
-            amenities: JSON.parse(row.amenities || '[]'),
-            images: JSON.parse(row.images || '[]')
+        if (error) throw error;
+
+        // Transform response to match previous flat structure if needed, or update frontend to read property object
+        // Previous SQL: SELECT p.*, w.id as wishlist_id ...
+        // So it returned a flat object of property fields + wishlist_id.
+        // We must flatten it to avoid breaking frontend.
+
+        const flattened = data.map(item => ({
+            ...item.property,
+            wishlist_id: item.wishlist_id,
+            saved_at: item.saved_at
         }));
-        res.json(wishlist);
-    });
+
+        res.json(flattened);
+    } catch (err) {
+        console.error("Get Wishlist Error:", err);
+        res.status(500).json({ message: "Database error" });
+    }
 });
 
-// Add to Wishlist
-app.post('/api/wishlist', authenticateToken, (req, res) => {
+// Add/Remove Wishlist (Toggle)
+app.post('/api/wishlist/toggle', authenticateToken, async (req, res) => {
     const { property_id } = req.body;
-    db.run(`INSERT INTO wishlist (user_id, property_id) VALUES (?, ?)`,
-        [req.user.id, property_id],
-        function (err) {
-            if (err) {
-                if (err.message.includes('UNIQUE constraint failed')) {
-                    return res.status(400).json({ message: "Property already in wishlist" });
-                }
-                return res.status(500).json({ message: "Error adding to wishlist" });
-            }
-            res.status(201).json({ message: "Added to wishlist", id: this.lastID });
-            createNotification(req.user.id, 'wishlist', `Property added to wishlist`, `/dashboard`);
+    const userId = req.user.id;
+
+    try {
+        // Check if exists
+        const { data: existing, error: fetchError } = await supabase
+            .from('wishlist')
+            .select('id')
+            .eq('user_id', userId)
+            .eq('property_id', property_id)
+            .maybeSingle();
+
+        if (existing) {
+            // Remove
+            await supabase.from('wishlist').delete().eq('id', existing.id);
+            res.json({ message: "Removed from wishlist", added: false });
+        } else {
+            // Add
+            await supabase.from('wishlist').insert([{ user_id: userId, property_id }]);
+            res.json({ message: "Added to wishlist", added: true });
         }
-    );
+    } catch (err) {
+        console.error("Toggle Wishlist Error:", err);
+        res.status(500).json({ message: "Error updating wishlist" });
+    }
 });
 
-// Remove from Wishlist
-app.delete('/api/wishlist/:property_id', authenticateToken, (req, res) => {
-    db.run(`DELETE FROM wishlist WHERE user_id = ? AND property_id = ?`,
-        [req.user.id, req.params.property_id],
-        function (err) {
-            if (err) return res.status(500).json({ message: "Error removing from wishlist" });
-            res.json({ message: "Removed from wishlist" });
-        }
-    );
-});
-// --- Notification Routes ---
 
-// Get User Notifications
-app.get('/api/notifications', authenticateToken, (req, res) => {
-    const sql = `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC`;
-    db.all(sql, [req.user.id], (err, rows) => {
-        if (err) return res.status(500).json({ message: "Database error" });
-        res.json(rows);
-    });
+// --- Notifications ---
+app.get('/api/notifications', authenticateToken, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('user_id', req.user.id)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        res.status(500).json({ message: "Error fetching notifications" });
+    }
 });
 
-// Mark Notification as Read
-app.put('/api/notifications/:id/read', authenticateToken, (req, res) => {
-    const sql = `UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?`;
-    db.run(sql, [req.params.id, req.user.id], function (err) {
-        if (err) return res.status(500).json({ message: "Error updating notification" });
-        res.json({ message: "Notification marked as read" });
-    });
+app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
+    try {
+        await supabase
+            .from('notifications')
+            .update({ is_read: 1 })
+            .eq('user_id', req.user.id);
+        res.json({ message: "All marked as read" });
+    } catch (err) {
+        res.status(500).json({ message: "Error updating notifications" });
+    }
 });
 
-// Mark All as Read
-app.put('/api/notifications/read-all', authenticateToken, (req, res) => {
-    const sql = `UPDATE notifications SET is_read = 1 WHERE user_id = ?`;
-    db.run(sql, [req.user.id], function (err) {
-        if (err) return res.status(500).json({ message: "Error updating notifications" });
-        res.json({ message: "All notifications marked as read" });
-    });
-});
 
 // Start Server
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    console.log('Attempting to start server on port', PORT);
-    app.listen(PORT, () => {
-        console.log(`Server running on http://localhost:${PORT}`);
-    });
-}
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
 
 export default app;
