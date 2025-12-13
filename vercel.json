@@ -1,8 +1,13 @@
 {
+    "functions": {
+        "api/index.js": {
+            "includeFiles": "server/database.sqlite"
+        }
+    },
     "rewrites": [
         {
             "source": "/api/(.*)",
-            "destination": "/server/index.js"
+            "destination": "/api/index.js"
         }
     ]
 }
