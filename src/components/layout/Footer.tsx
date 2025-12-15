@@ -1,44 +1,46 @@
 import { Link } from "react-router-dom";
-import { Building2, Facebook, Twitter, Instagram, Linkedin } from "lucide-react";
+import { Compass, Facebook, Twitter, Instagram, Linkedin } from "lucide-react";
 
 const Footer = () => {
   return (
-    <footer className="bg-foreground text-background">
+    <footer className="bg-foreground text-background dark:bg-card dark:text-foreground border-t dark:border-border">
       <div className="container mx-auto px-4 py-12 md:py-16">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
-            <Link to="/" className="flex items-center gap-2 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center">
-                <Building2 className="w-5 h-5 text-primary-foreground" />
+            <Link to="/" className="flex items-center gap-2.5 mb-4 group">
+              <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg">
+                <Compass className="w-6 h-6 text-white" />
               </div>
-              <span className="text-xl font-bold">StayHub</span>
+              <span className="text-2xl font-bold tracking-tight">
+                Stay<span className="text-accent">Hub</span>
+              </span>
             </Link>
-            <p className="text-background/70 text-sm leading-relaxed mb-4">
+            <p className="text-white/70 dark:text-muted-foreground text-sm leading-relaxed mb-4">
               Find the perfect room — from cosy stays to business-ready hotels. Book fast. Stay safe.
             </p>
             <div className="flex gap-3">
               <a
                 href="#"
-                className="w-10 h-10 rounded-full bg-background/10 flex items-center justify-center hover:bg-primary transition-colors"
+                className="w-10 h-10 rounded-full bg-white/10 dark:bg-secondary flex items-center justify-center hover:bg-primary transition-colors text-white dark:text-foreground"
               >
                 <Facebook className="w-4 h-4" />
               </a>
               <a
                 href="#"
-                className="w-10 h-10 rounded-full bg-background/10 flex items-center justify-center hover:bg-primary transition-colors"
+                className="w-10 h-10 rounded-full bg-white/10 dark:bg-secondary flex items-center justify-center hover:bg-primary transition-colors text-white dark:text-foreground"
               >
                 <Twitter className="w-4 h-4" />
               </a>
               <a
                 href="#"
-                className="w-10 h-10 rounded-full bg-background/10 flex items-center justify-center hover:bg-primary transition-colors"
+                className="w-10 h-10 rounded-full bg-white/10 dark:bg-secondary flex items-center justify-center hover:bg-primary transition-colors text-white dark:text-foreground"
               >
                 <Instagram className="w-4 h-4" />
               </a>
               <a
                 href="#"
-                className="w-10 h-10 rounded-full bg-background/10 flex items-center justify-center hover:bg-primary transition-colors"
+                className="w-10 h-10 rounded-full bg-white/10 dark:bg-secondary flex items-center justify-center hover:bg-primary transition-colors text-white dark:text-foreground"
               >
                 <Linkedin className="w-4 h-4" />
               </a>
@@ -48,24 +50,24 @@ const Footer = () => {
           {/* Company */}
           <div>
             <h4 className="font-semibold mb-4">Company</h4>
-            <ul className="space-y-3 text-sm text-background/70">
+            <ul className="space-y-3 text-sm text-white/80">
               <li>
-                <Link to="/about" className="hover:text-background transition-colors">
+                <Link to="/about" className="hover:text-white transition-colors">
                   About Us
                 </Link>
               </li>
               <li>
-                <Link to="/careers" className="hover:text-background transition-colors">
+                <Link to="/careers" className="hover:text-white transition-colors">
                   Careers
                 </Link>
               </li>
               <li>
-                <Link to="/press" className="hover:text-background transition-colors">
+                <Link to="/press" className="hover:text-white transition-colors">
                   Press
                 </Link>
               </li>
               <li>
-                <Link to="/blog" className="hover:text-background transition-colors">
+                <Link to="/blog" className="hover:text-white transition-colors">
                   Blog
                 </Link>
               </li>
@@ -75,24 +77,24 @@ const Footer = () => {
           {/* Support */}
           <div>
             <h4 className="font-semibold mb-4">Support</h4>
-            <ul className="space-y-3 text-sm text-background/70">
+            <ul className="space-y-3 text-sm text-white/80">
               <li>
-                <Link to="/help" className="hover:text-background transition-colors">
+                <Link to="/help" className="hover:text-white transition-colors">
                   Help Center
                 </Link>
               </li>
               <li>
-                <Link to="/contact" className="hover:text-background transition-colors">
+                <Link to="/contact" className="hover:text-white transition-colors">
                   Contact Us
                 </Link>
               </li>
               <li>
-                <Link to="/cancellation" className="hover:text-background transition-colors">
+                <Link to="/cancellation" className="hover:text-white transition-colors">
                   Cancellation Policy
                 </Link>
               </li>
               <li>
-                <Link to="/safety" className="hover:text-background transition-colors">
+                <Link to="/safety" className="hover:text-white transition-colors">
                   Safety
                 </Link>
               </li>
@@ -102,24 +104,24 @@ const Footer = () => {
           {/* Hosting */}
           <div>
             <h4 className="font-semibold mb-4">Hosting</h4>
-            <ul className="space-y-3 text-sm text-background/70">
+            <ul className="space-y-3 text-sm text-white/80">
               <li>
-                <Link to="/owner" className="hover:text-background transition-colors">
+                <Link to="/owner" className="hover:text-white transition-colors">
                   List Your Property
                 </Link>
               </li>
               <li>
-                <Link to="/owner/resources" className="hover:text-background transition-colors">
+                <Link to="/owner/resources" className="hover:text-white transition-colors">
                   Host Resources
                 </Link>
               </li>
               <li>
-                <Link to="/owner/community" className="hover:text-background transition-colors">
+                <Link to="/owner/community" className="hover:text-white transition-colors">
                   Community Forum
                 </Link>
               </li>
               <li>
-                <Link to="/owner/responsible" className="hover:text-background transition-colors">
+                <Link to="/owner/responsible" className="hover:text-white transition-colors">
                   Responsible Hosting
                 </Link>
               </li>
@@ -128,17 +130,20 @@ const Footer = () => {
         </div>
 
         {/* Bottom */}
-        <div className="pt-8 border-t border-background/10 flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-background/60">
+        <div className="pt-8 border-t border-white/10 dark:border-border flex flex-col md:flex-row justify-between items-center gap-4 text-sm text-white/60 dark:text-muted-foreground">
           <p>© 2024 StayHub. All rights reserved.</p>
           <div className="flex gap-6">
-            <Link to="/privacy" className="hover:text-background transition-colors">
+            <Link to="/privacy" className="hover:text-white transition-colors">
               Privacy
             </Link>
-            <Link to="/terms" className="hover:text-background transition-colors">
+            <Link to="/terms" className="hover:text-white transition-colors">
               Terms
             </Link>
-            <Link to="/sitemap" className="hover:text-background transition-colors">
+            <Link to="/sitemap" className="hover:text-white transition-colors">
               Sitemap
+            </Link>
+            <Link to="/admin" className="hover:text-white transition-colors">
+              Admin Panel
             </Link>
           </div>
         </div>

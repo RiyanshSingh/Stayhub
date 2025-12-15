@@ -118,8 +118,8 @@ const AddProperty = () => {
         try {
             await addProperty(newProperty);
             toast({
-                title: "Property Listed Successfully!",
-                description: "Your property is now live in the Explore section.",
+                title: "Property Submitted for Review",
+                description: "Your property is under review. You can track its status in your dashboard.",
             });
             navigate("/dashboard"); // Redirect to Dashboard My Properties
         } catch (error) {

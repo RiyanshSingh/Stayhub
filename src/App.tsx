@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
+import Destinations from "./pages/Destinations";
+import Wishlist from "./pages/Wishlist";
 import SearchPage from "./pages/SearchPage";
 import HotelDetail from "./pages/HotelDetail";
 import OwnerLanding from "./pages/OwnerLanding";
@@ -13,12 +15,15 @@ import ForgotPassword from "./pages/ForgotPassword";
 import Dashboard from "./pages/dashboard/Dashboard";
 import BookingDetails from "./pages/dashboard/BookingDetails";
 import BookingPage from "./pages/BookingPage";
+import AdminLogin from "./pages/admin/AdminLogin";
+import AdminDashboard from "./pages/admin/AdminDashboard";
 import StaticPage from "./pages/StaticPage";
 import NotFound from "./pages/NotFound";
 import { PropertyProvider } from "./context/PropertyContext";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import ScrollToTop from "./components/ScrollToTop";
+import ChatWidget from "./components/chat/ChatWidget";
 
 const queryClient = new QueryClient();
 
@@ -32,9 +37,12 @@ const App = () => (
             <Sonner />
             <BrowserRouter>
               <ScrollToTop />
+              <ChatWidget />
               <Routes>
                 <Route path="/" element={<Index />} />
                 <Route path="/search" element={<SearchPage />} />
+                <Route path="/destinations" element={<Destinations />} />
+                <Route path="/wishlist" element={<Wishlist />} />
                 <Route path="/hotel/:slug" element={<HotelDetail />} />
                 <Route path="/book/:slug" element={<BookingPage />} />
                 <Route path="/owner" element={<OwnerLanding />} />
@@ -43,6 +51,8 @@ const App = () => (
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/dashboard" element={<Dashboard />} />
                 <Route path="/dashboard/bookings/:id" element={<BookingDetails />} />
+                <Route path="/admin" element={<AdminLogin />} />
+                <Route path="/admin/dashboard" element={<AdminDashboard />} />
 
                 {/* Footer Pages */}
                 <Route path="/about" element={<StaticPage />} />

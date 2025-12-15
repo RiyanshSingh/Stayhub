@@ -53,6 +53,10 @@ create table public.bookings (
   refund_status text,
   payment_method text,
   transaction_id text,
+  special_requests text,
+  guest_name text,
+  guest_email text,
+  guest_phone text,
   created_at timestamptz default now()
 );
 

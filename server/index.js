@@ -7,10 +7,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const express = require('express');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config(); // Load env vars
+
+// Gemini API Setup
+const genAI = process.env.GEMINI_API_KEY
+    ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
+    : null;
 
 // Supabase Client
 const { createClient } = require('@supabase/supabase-js');
@@ -67,9 +73,38 @@ const authenticateToken = (req, res, next) => {
 
 // Routes
 
+// Helper to link guest bookings to new user
+const linkGuestBookings = async (userId, email) => {
+    try {
+        const { error } = await supabase
+            .from('bookings')
+            .update({ user_id: userId })
+            .eq('guest_email', email)
+            .is('user_id', null);
+
+        if (error) console.error("Error linking guest bookings:", error);
+        else console.log(`Linked guest bookings for ${email} to user ${userId}`);
+    } catch (err) {
+        console.error("Exception linking guest bookings:", err);
+    }
+};
+
+// ...
+
+// Helper to generate IDs
+function generateBackupCodes() {
+    const codes = [];
+    for (let i = 0; i < 5; i++) {
+        // Random 8 character string
+        const code = Math.random().toString(36).substring(2, 10).toUpperCase();
+        codes.push({ code, used: false });
+    }
+    return codes;
+}
+
 // Register
 app.post('/api/auth/register', async (req, res) => {
-    const { name, email, password } = req.body;
+    const { name, email, password, security_question, security_answer } = req.body;
 
     if (!name || !email || !password) {
         return res.status(400).json({ message: "All fields are required" });
@@ -78,10 +113,19 @@ app.post('/api/auth/register', async (req, res) => {
     try {
         const hashedPassword = await bcrypt.hash(password, 10);
         const avatar = getAvatar(email);
+        const backup_codes = generateBackupCodes(); // Generate 5 codes
 
         const { data, error } = await supabase
             .from('users')
-            .insert([{ name, email, password: hashedPassword, avatar }])
+            .insert([{
+                name,
+                email,
+                password: hashedPassword,
+                avatar,
+                security_question,
+                security_answer,
+                backup_codes
+            }])
             .select()
             .single();
 
@@ -92,17 +136,100 @@ app.post('/api/auth/register', async (req, res) => {
             throw error;
         }
 
+        // Link any previous guest bookings
+        await linkGuestBookings(data.id, email);
+
         // Auto-login after register
         const token = jwt.sign({ id: data.id, email }, SECRET_KEY, { expiresIn: '24h' });
         res.status(201).json({
             message: "User registered successfully",
             token,
-            user: { id: data.id, name, email, avatar, phone: null }
+            user: { id: data.id, name, email, avatar, phone: null },
+            backupCodes: backup_codes.map(c => c.code) // Send codes to frontend
         });
 
     } catch (err) {
         console.error("Register Error:", err);
         res.status(500).json({ message: "Error registering user" });
+    }
+});
+
+// Verify Backup Code (Recovery)
+app.post('/api/auth/verify-backup-code', async (req, res) => {
+    const { email, code } = req.body;
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('id, backup_codes')
+            .eq('email', email)
+            .single();
+
+        if (error || !user) return res.status(404).json({ message: "User not found" });
+
+        const codes = user.backup_codes || [];
+        const codeIndex = codes.findIndex(c => c.code === code && !c.used);
+
+        if (codeIndex === -1) {
+            return res.status(400).json({ message: "Invalid or already used backup code." });
+        }
+
+        // Mark as used
+        codes[codeIndex].used = true;
+
+        const { error: updateError } = await supabase
+            .from('users')
+            .update({ backup_codes: codes })
+            .eq('id', user.id);
+
+        if (updateError) throw updateError;
+
+        // Generate temporary reset token
+        const resetToken = jwt.sign({ id: user.id, type: 'reset' }, SECRET_KEY, { expiresIn: '15m' });
+        return res.json({ resetToken });
+
+    } catch (err) {
+        console.error("Backup Code Verify Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// Regenerate Backup Codes (Protected)
+app.post('/api/auth/regenerate-backup-codes', authenticateToken, async (req, res) => {
+    try {
+        const newCodes = generateBackupCodes();
+
+        const { error } = await supabase
+            .from('users')
+            .update({ backup_codes: newCodes })
+            .eq('id', req.user.id);
+
+        if (error) throw error;
+
+        res.json({ message: "New codes generated", backupCodes: newCodes.map(c => c.code) });
+
+    } catch (err) {
+        console.error("Regenerate Codes Error:", err);
+        res.status(500).json({ message: "server error" });
+    }
+});
+
+// Get Backup Codes (Protected)
+app.get('/api/auth/backup-codes', authenticateToken, async (req, res) => {
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('backup_codes')
+            .eq('id', req.user.id)
+            .single();
+
+        if (error) throw error;
+
+        // Return codes with their used status
+        res.json({ backupCodes: user.backup_codes || [] });
+
+    } catch (err) {
+        console.error("Get Codes Error:", err);
+        res.status(500).json({ message: "Server error" });
     }
 });
 
@@ -129,11 +256,22 @@ app.post('/api/auth/google', async (req, res) => {
 
         if (user) {
             // Login existing
+            // Also attempt to link bookings just in case they made guest bookings while logged out
+            await linkGuestBookings(user.id, user.email);
+
             const token = jwt.sign({ id: user.id, email: user.email }, SECRET_KEY, { expiresIn: '24h' });
             return res.json({
                 message: "Google Login successful",
                 token,
-                user: { id: user.id, name: user.name, email: user.email, avatar: user.avatar, phone: user.phone || null }
+                user: {
+                    id: user.id,
+                    name: user.name,
+                    email: user.email,
+                    avatar: user.avatar,
+                    phone: user.phone || null,
+                    address: user.address || null,
+                    gender: user.gender || null
+                }
             });
         } else {
             // Register new
@@ -148,7 +286,31 @@ app.post('/api/auth/google', async (req, res) => {
                 .select()
                 .single();
 
-            if (createError) throw createError;
+            if (createError) {
+                // If email already exists (race condition or soft mismatch), try to login
+                if (createError.code === '23505') {
+                    const { data: existingUser, error: fetchError } = await supabase
+                        .from('users')
+                        .select('*')
+                        .eq('email', mockGoogleUser.email)
+                        .single();
+
+                    if (fetchError || !existingUser) throw createError; // If still can't find, throw original
+
+                    // Proceed with login for existingUser
+                    await linkGuestBookings(existingUser.id, existingUser.email);
+                    const token = jwt.sign({ id: existingUser.id, email: existingUser.email }, SECRET_KEY, { expiresIn: '24h' });
+                    return res.status(200).json({
+                        message: "Google Login successful (recovered)",
+                        token,
+                        user: { id: existingUser.id, name: existingUser.name, email: existingUser.email, avatar: existingUser.avatar, phone: existingUser.phone || null }
+                    });
+                }
+                throw createError;
+            }
+
+            // Link guest bookings
+            await linkGuestBookings(newUser.id, mockGoogleUser.email);
 
             const token = jwt.sign({ id: newUser.id, email: mockGoogleUser.email }, SECRET_KEY, { expiresIn: '24h' });
             return res.status(201).json({
@@ -196,7 +358,9 @@ app.post('/api/auth/login', async (req, res) => {
                 name: user.name,
                 email: user.email,
                 avatar: user.avatar,
-                phone: user.phone || null
+                phone: user.phone || null,
+                address: user.address || null,
+                gender: user.gender || null
             }
         });
     } catch (err) {
@@ -323,8 +487,8 @@ app.post('/api/properties', authenticateToken, async (req, res) => {
     // Generate slug from name
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now();
 
-    // Supabase handles JSON natively (assuming JSONB columns), so we pass arrays directly
-    // If we used TEXT columns, we would strictly stringify, but let's assume JSONB support as per schema
+    // Default status is now 'pending' for approval workflow
+    const status = 'pending';
 
     try {
         const { data, error } = await supabase
@@ -342,7 +506,8 @@ app.post('/api/properties', authenticateToken, async (req, res) => {
                 amenities, // Pass array directly
                 images,    // Pass array directly
                 currency,
-                category
+                category,
+                status     // Add status
             }])
             .select()
             .single();
@@ -352,7 +517,7 @@ app.post('/api/properties', authenticateToken, async (req, res) => {
         res.status(201).json({ message: "Property created", id: data.id, slug: data.slug });
     } catch (err) {
         console.error("Create Property Error:", err);
-        res.status(500).json({ message: "Error creating property" });
+        res.status(500).json({ message: "Error creating property", error: err.message || err });
     }
 });
 
@@ -381,6 +546,7 @@ app.get('/api/properties', async (req, res) => {
         const { data: properties, error } = await supabase
             .from('properties')
             .select('*')
+            .eq('status', 'approved') // Only show approved properties
             .order('id', { ascending: false });
 
         if (error) throw error;
@@ -451,38 +617,86 @@ app.delete('/api/properties/:id', authenticateToken, async (req, res) => {
 
 // --- Booking Routes ---
 
-// Create Booking
-app.post('/api/bookings', authenticateToken, async (req, res) => {
-    const { property_id, property_name, property_image, check_in, check_out, guests, total_price, nights, payment_method } = req.body;
-    const transaction_id = 'TXN' + Date.now(); // Mock transaction ID
+// Middleware to optionally authenticate token (for guest checkout)
+const optionalAuthenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        req.user = null;
+        return next();
+    }
+
+    jwt.verify(token, SECRET_KEY, (err, user) => {
+        if (err) {
+            req.user = null; // Invalid token treated as guest
+        } else {
+            req.user = user;
+        }
+        next();
+    });
+};
+
+// ...
+
+// Create Booking (Supports Auth User OR Guest)
+app.post('/api/bookings', optionalAuthenticateToken, async (req, res) => {
+    const {
+        property_id, property_name, property_image,
+        check_in, check_out, guests, total_price, nights,
+        payment_method,
+        // Guest Details
+        guest_name, guest_email, guest_phone, special_requests
+    } = req.body;
+
+    const transaction_id = 'TXN' + Date.now();
 
     try {
+        // Validation: Must have User ID OR Guest Details
+        if (!req.user && (!guest_name || !guest_email)) {
+            return res.status(400).json({ message: "Guest name and email are required for guest checkout" });
+        }
+
+        const bookingData = {
+            user_id: req.user ? req.user.id : null,
+            property_id,
+            property_name,
+            property_image,
+            check_in,
+            check_out,
+            guests,
+            total_price,
+            nights,
+            payment_method,
+            transaction_id,
+            // Add guest fields
+            guest_name: req.user ? req.user.name : guest_name, // Fallback to user name if logged in
+            guest_email: req.user ? req.user.email : guest_email,
+            guest_phone: req.user ? (req.user.phone || guest_phone) : guest_phone,
+            special_requests
+        };
+
         const { data, error } = await supabase
             .from('bookings')
-            .insert([{
-                user_id: req.user.id,
-                property_id,
-                property_name,
-                property_image,
-                check_in,
-                check_out,
-                guests,
-                total_price,
-                nights,
-                payment_method,
-                transaction_id
-            }])
+            .insert([bookingData])
             .select()
             .single();
 
         if (error) throw error;
 
+        // If registered user, send notification
+        if (req.user) {
+            createNotification(req.user.id, 'booking', `Booking confirmed for ${property_name}`, `/dashboard/bookings/${data.id}`);
+        }
+
+        // TODO: specific notification or email for guest (omitted for now)
+
         res.status(201).json({ message: "Booking created", id: data.id });
-        createNotification(req.user.id, 'booking', `Booking confirmed for ${property_name}`, `/dashboard/bookings/${data.id}`);
+
 
     } catch (err) {
         console.error("Create Booking Error:", err);
-        res.status(500).json({ message: "Error creating booking" });
+        res.status(500).json({ message: "Error creating booking", error: err.message });
     }
 });
 
@@ -727,7 +941,249 @@ app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
         res.status(500).json({ message: "Error updating notifications" });
     }
 });
+// --- Admin Routes ---
 
+// Admin Login
+// Admin Login
+app.post('/api/admin/login', async (req, res) => {
+    const { username, password } = req.body;
+
+    try {
+        const { data: admin, error } = await supabase
+            .from('admins')
+            .select('*')
+            .eq('username', username)
+            .single();
+
+        if (error || !admin) {
+            return res.status(401).json({ message: "Invalid credentials" });
+        }
+
+        // In a real app, compare hashed password. Here we compare plain text as per setup.
+        if (admin.password === password) {
+            const token = jwt.sign({ id: admin.id, role: 'admin' }, SECRET_KEY, { expiresIn: '24h' });
+            res.json({ message: "Admin login successful", token });
+        } else {
+            res.status(401).json({ message: "Invalid credentials" });
+        }
+    } catch (err) {
+        console.error("Admin Login Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// Admin Middleware
+const authenticateAdmin = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, SECRET_KEY, (err, user) => {
+        if (err || user.role !== 'admin') return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+};
+
+// Get Pending Properties
+app.get('/api/admin/properties/pending', authenticateAdmin, async (req, res) => {
+    try {
+        const { data: properties, error } = await supabase
+            .from('properties')
+            .select('*, users(name, email)') // Join with users to see who posted it
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(properties);
+    } catch (err) {
+        console.error("Get Pending Properties Error:", err);
+        res.status(500).json({ message: "Database error" });
+    }
+});
+
+// Approve Property
+app.put('/api/admin/properties/:id/approve', authenticateAdmin, async (req, res) => {
+    const propertyId = req.params.id;
+    try {
+        const { error } = await supabase
+            .from('properties')
+            .update({ status: 'approved' })
+            .eq('id', propertyId);
+
+        if (error) throw error;
+
+        // Notify the user (optional, but good UX)
+        // We'd need to fetch the property first to get the user_id, but let's skip for simplicity/speed or add a quick fetch
+        const { data: prop } = await supabase.from('properties').select('user_id, name').eq('id', propertyId).single();
+        if (prop) {
+            createNotification(prop.user_id, 'system', `Your property "${prop.name}" has been approved and is now live!`, `/hotel/${prop.slug || propertyId}`);
+        }
+
+        res.json({ message: "Property approved successfully" });
+    } catch (err) {
+        console.error("Approve Property Error:", err);
+        res.status(500).json({ message: "Error approving property" });
+    }
+});
+
+
+// Chat Endpoint
+app.post('/api/chat', async (req, res) => {
+    const { message, history } = req.body;
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!genAI) {
+        return res.json({
+            response: "I'm ready to help, but my brain (API Key) is missing! Please ask the admin to add the GEMINI_API_KEY to the server."
+        });
+    }
+
+    try {
+        let userContext = "";
+        let userName = "Guest";
+
+        // 1. Verify Token & Fetch User Context if logged in
+        if (token) {
+            try {
+                const decoded = jwt.verify(token, SECRET_KEY);
+                const userId = decoded.id;
+
+                // Fetch Profile
+                const { data: user } = await supabase.from('users').select('*').eq('id', userId).single();
+                if (user) {
+                    userName = user.name;
+                    userContext += `\nLogged-in User: ${user.name} (${user.email}). Phone: ${user.phone || 'Not set'}. Address: ${user.address || 'Not set'}.`;
+                }
+
+                // Fetch Recent Bookings
+                const { data: bookings } = await supabase
+                    .from('bookings')
+                    .select('id, property_name, check_in, check_out, status, total_price, payment_method, guests, special_requests')
+                    .eq('user_id', userId)
+                    .order('created_at', { ascending: false })
+                    .limit(3);
+
+                if (bookings && bookings.length > 0) {
+                    userContext += `\nRecent Bookings:\n${bookings.map(b => `- ${b.property_name} (${b.status}): ${b.check_in} to ${b.check_out}. Paid: ${b.total_price} via ${b.payment_method}. Guests: ${b.guests}. Notes: ${b.special_requests || 'None'}`).join('\n')}`;
+                } else {
+                    userContext += `\nNo recent bookings.`;
+                }
+
+                // Fetch User Properties (Host Context)
+                const { data: myProperties } = await supabase
+                    .from('properties')
+                    .select('name, city, status, price')
+                    .eq('user_id', userId);
+
+                if (myProperties && myProperties.length > 0) {
+                    userContext += `\nMy Listed Properties:\n${myProperties.map(p => `- ${p.name} in ${p.city} (${p.status}, ₹${p.price})`).join('\n')}`;
+                }
+
+                // Fetch Wishlist
+                const { data: wishlist } = await supabase
+                    .from('wishlist')
+                    .select('property_id')
+                    .eq('user_id', userId);
+
+                if (wishlist && wishlist.length > 0) {
+                    userContext += `\nItems in Wishlist: ${wishlist.length}`;
+                }
+
+            } catch (jwtErr) {
+                console.log("Chat Token Invalid/Expired:", jwtErr.message);
+                // Continue as guest
+            }
+        }
+
+        // 2. Fetch Global Hotel Context (Keep existing RAG-lite)
+        const { data: hotels } = await supabase
+            .from('properties')
+            .select('name, city, price, type, rating')
+            .eq('status', 'approved')
+            .limit(20);
+
+        const hotelContext = hotels ? hotels.map(h => `- ${h.name} (${h.type}) in ${h.city}, approx ₹${h.price}/night. Rated ${h.rating || 'New'}`).join('\n') : "No hotels available right now.";
+
+        // 3. Construct System Prompt
+        const systemPrompt = `You are StayHub AI, an expert travel assistant.
+        
+        Current User: ${userName}
+        ${userContext}
+        
+        Available Hotels:
+        ${hotelContext}
+        
+        Capabilities:
+        1. Answer questions about the user's bookings ("Where am I going next?").
+        2. Help update profile ("How do I change my phone number?").
+        3. Recommend hotels and explain booking.
+        4. If user is NOT logged in and asks to login/book, reply exactly: "[SHOW_LOGIN_FORM]" (nothing else).
+        
+        Rules:
+        - Be friendly and concise.
+        - If the user asks to login, strictly output keyphrase: "[SHOW_LOGIN_FORM]".
+        - Do not expose raw IDs.
+        
+        User Query: ${message}`;
+
+        // Sanitize history & Limit to last 10 messages
+        let validHistory = (history || []).filter(msg => msg.role === 'user' || msg.role === 'model');
+        if (validHistory.length > 10) validHistory = validHistory.slice(-10);
+        while (validHistory.length > 0 && validHistory[0].role === 'model') {
+            validHistory.shift();
+        }
+
+        // List of models to try in order of preference
+        const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"];
+        let lastError = null;
+
+        for (const modelName of modelsToTry) {
+            try {
+                console.log(`Attempting chat with model: ${modelName}`);
+                const model = genAI.getGenerativeModel({ model: modelName });
+
+                const chat = model.startChat({
+                    history: validHistory,
+                    generationConfig: { maxOutputTokens: 1000 },
+                    safetySettings: [
+                        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                    ]
+                });
+
+                const result = await chat.sendMessage(systemPrompt);
+                const text = result.response.text();
+
+                // If successful, send response and exit loop
+                return res.json({ response: text });
+
+            } catch (err) {
+                console.warn(`Failed with ${modelName}:`, err.message);
+                lastError = err;
+                // If 429 (Quota) or 404 (Not Found), continue to next model. 
+                // Otherwise, it might be a prompt issue, but we'll try falling back anyway to be safe.
+                continue;
+            }
+        }
+
+        // If we exhausted all models
+        console.error("All models failed. Last error:", lastError);
+        const errorMessage = lastError?.message || "Unknown error";
+        if (errorMessage.includes("SAFETY")) {
+            res.json({ response: "I cannot complete this request due to safety filters. Please rephrase." });
+        } else {
+            res.status(500).json({ response: `I'm having trouble thinking right now. (All models failed. Last error: ${errorMessage})` });
+        }
+
+    } catch (err) {
+        console.error("Critical Chat Error:", err);
+        res.status(500).json({ response: "System error in chatbot." });
+    }
+});
 
 // Start Server only if run directly
 if (process.argv[1] === __filename) {

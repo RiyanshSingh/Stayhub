@@ -47,21 +47,28 @@ const HotelDetail = () => {
   let hotel = hotels.find((h) => h.slug === slug);
 
   if (!hotel) {
-    hotel = properties.find((h) => h.slug === slug);
+    hotel = properties.find((h) => h.slug === slug || h.id.toString() === slug);
   }
 
-  // Fallback: If slug matches an ID (backend lookup style? no, we have all properties in context)
-  // Actually, properties context should have all public properties.
+  const { loading } = useProperty();
+
+  const today = new Date();
 
   const [selectedRoom, setSelectedRoom] = useState<string | null>(null);
   const [isLiked, setIsLiked] = useState(false);
   const [showAllPhotos, setShowAllPhotos] = useState(false);
-  const [checkIn, setCheckIn] = useState("");
+  const [checkIn, setCheckIn] = useState(today.toISOString().split('T')[0]);
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState(1);
   const { toast } = useToast();
 
-
+  if (loading && !hotel) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   if (!hotel) {
     return (
@@ -112,14 +119,7 @@ const HotelDetail = () => {
   const totalPrice = safeHotel ? (safeHotel.pricePerNight * nights) + cleaningFee + serviceFee + extraGuestFee : 0;
 
   const handleReserve = () => {
-    if (!isAuthenticated) {
-      toast({
-        title: "Login Required",
-        description: "Please sign in to reserve this property.",
-      });
-      navigate("/signin", { state: { from: location } });
-      return;
-    }
+
 
     if (!checkIn || !checkOut) {
       toast({
@@ -301,7 +301,7 @@ const HotelDetail = () => {
                   </Avatar>
                   <div>
                     <h3 className="font-semibold text-foreground">
-                      Hosted by {safeHotel.host.name}
+                      Hosted by {safeHotel.host.name} <Badge variant="secondary" className="ml-2 text-xs bg-blue-100 text-blue-800 hover:bg-blue-100 border-none"><CheckCircle className="w-3 h-3 mr-1 fill-blue-500 text-white" />Verified</Badge>
                     </h3>
                     <p className="text-sm text-muted-foreground">
                       {safeHotel.host.responseRate}% response rate · Responds {safeHotel.host.responseTime}
@@ -638,6 +638,12 @@ const HotelDetail = () => {
                       </div>
                     </div>
                   )}
+
+                  {/* Social Proof */}
+                  <div className="flex items-center gap-2 mb-4 p-3 bg-accent/10 rounded-xl text-accent text-sm font-medium">
+                    <Users className="w-4 h-4" />
+                    3 other people are looking at this hotel
+                  </div>
 
                   {safeHotel.freeCancellation && (
                     <div className="mt-6 p-3 rounded-xl bg-success/10 border border-success/20">

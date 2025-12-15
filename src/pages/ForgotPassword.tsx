@@ -20,6 +20,7 @@ const ForgotPassword = () => {
     const [securityAnswer, setSecurityAnswer] = useState("");
     const [resetToken, setResetToken] = useState("");
     const [newPassword, setNewPassword] = useState("");
+    const [isBackupCodeMode, setIsBackupCodeMode] = useState(false);
 
     const handleEmailSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -50,10 +51,15 @@ const ForgotPassword = () => {
         e.preventDefault();
         setLoading(true);
         try {
-            const response = await fetch('/api/auth/verify-security-answer', {
+            const endpoint = isBackupCodeMode ? '/api/auth/verify-backup-code' : '/api/auth/verify-security-answer';
+            const body = isBackupCodeMode
+                ? { email, code: securityAnswer } // Reusing securityAnswer state for code input
+                : { email, answer: securityAnswer };
+
+            const response = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, answer: securityAnswer }),
+                body: JSON.stringify(body),
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.message || 'Verification failed');
@@ -64,7 +70,7 @@ const ForgotPassword = () => {
             toast({
                 variant: "destructive",
                 title: "Error",
-                description: "Incorrect answer. Please try again.",
+                description: isBackupCodeMode ? "Invalid or used backup code." : "Incorrect answer. Please try again.",
             });
         } finally {
             setLoading(false);
@@ -152,24 +158,47 @@ const ForgotPassword = () => {
 
                             {step === 2 && (
                                 <form onSubmit={handleAnswerSubmit} className="space-y-6">
-                                    <div className="bg-muted p-4 rounded-lg mb-4">
-                                        <p className="text-sm font-medium text-muted-foreground">Security Question:</p>
-                                        <p className="text-lg font-semibold">{securityQuestion}</p>
-                                    </div>
+                                    {!isBackupCodeMode ? (
+                                        <div className="bg-muted p-4 rounded-lg mb-4">
+                                            <p className="text-sm font-medium text-muted-foreground">Security Question:</p>
+                                            <p className="text-lg font-semibold">{securityQuestion}</p>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-muted p-4 rounded-lg mb-4">
+                                            <p className="text-sm font-medium text-muted-foreground">Backup Verification</p>
+                                            <p className="text-sm">Enter one of your 8-character backup codes.</p>
+                                        </div>
+                                    )}
+
                                     <div className="space-y-2">
-                                        <Label htmlFor="securityAnswer">Your Answer</Label>
+                                        <Label htmlFor="securityAnswer">{isBackupCodeMode ? "Backup Code" : "Your Answer"}</Label>
                                         <Input
                                             id="securityAnswer"
                                             type="text"
-                                            placeholder="Enter your answer"
+                                            placeholder={isBackupCodeMode ? "XXXXXXXX" : "Enter your answer"}
                                             value={securityAnswer}
                                             onChange={(e) => setSecurityAnswer(e.target.value)}
                                             required
+                                            className={isBackupCodeMode ? "font-mono uppercase tracking-widest" : ""}
                                         />
                                     </div>
+
                                     <Button type="submit" size="lg" className="w-full text-base" disabled={loading}>
-                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Verify Answer"}
+                                        {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : (isBackupCodeMode ? "Verify Code" : "Verify Answer")}
                                     </Button>
+
+                                    <div className="text-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setIsBackupCodeMode(!isBackupCodeMode);
+                                                setSecurityAnswer(""); // Clear input on switch
+                                            }}
+                                            className="text-sm text-primary hover:underline"
+                                        >
+                                            {isBackupCodeMode ? "Use Security Question instead" : "Try another way (Backup Code)"}
+                                        </button>
+                                    </div>
                                 </form>
                             )}
 

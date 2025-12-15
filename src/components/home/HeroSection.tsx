@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Search, MapPin, Calendar as CalendarIcon, Users, ChevronDown, Minus, Plus } from "lucide-react";
-import { format } from "date-fns";
+import { format, addDays } from "date-fns";
+
 import { DateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -19,7 +20,10 @@ import heroImage from "@/assets/hero-hotel.jpg";
 const HeroSection = () => {
   const navigate = useNavigate();
   const [location, setLocation] = useState("");
-  const [date, setDate] = useState<DateRange | undefined>();
+  const [date, setDate] = useState<DateRange | undefined>({
+    from: new Date(),
+    to: undefined,
+  });
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
 
@@ -108,7 +112,10 @@ const HeroSection = () => {
                               {format(date.to, "LLL dd, y")}
                             </>
                           ) : (
-                            format(date.from, "LLL dd, y")
+                            <>
+                              {format(date.from, "LLL dd, y")} -{" "}
+                              <span className="text-muted-foreground ml-1">Choose Date</span>
+                            </>
                           )
                         ) : (
                           <span>Pick a date</span>
@@ -241,7 +248,10 @@ const HeroSection = () => {
                             {format(date.to, "LLL dd, y")}
                           </>
                         ) : (
-                          format(date.from, "LLL dd, y")
+                          <>
+                            {format(date.from, "LLL dd, y")} -{" "}
+                            <span className="text-muted-foreground ml-1">Choose Date</span>
+                          </>
                         )
                       ) : (
                         <span>Check in — Check out</span>
@@ -346,18 +356,19 @@ const HeroSection = () => {
           </div>
 
           {/* Quick Stats */}
-          <div className="flex justify-center gap-8 md:gap-16 mt-8 text-white/80">
-            <div className="text-center">
-              <div className="text-2xl md:text-3xl font-bold text-white">2.5M+</div>
-              <div className="text-sm">Happy Guests</div>
+          {/* Quick Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-6 mt-12 max-w-3xl mx-auto text-white/90">
+            <div className="flex flex-col items-center p-4">
+              <div className="text-3xl md:text-4xl font-bold text-white mb-1">2.5M+</div>
+              <div className="text-sm font-medium opacity-80">Happy Guests</div>
             </div>
-            <div className="text-center">
-              <div className="text-2xl md:text-3xl font-bold text-white">15K+</div>
-              <div className="text-sm">Hotels Listed</div>
+            <div className="flex flex-col items-center p-4">
+              <div className="text-3xl md:text-4xl font-bold text-white mb-1">15K+</div>
+              <div className="text-sm font-medium opacity-80">Hotels Listed</div>
             </div>
-            <div className="text-center">
-              <div className="text-2xl md:text-3xl font-bold text-white">120+</div>
-              <div className="text-sm">Countries</div>
+            <div className="flex flex-col items-center p-4 col-span-2 md:col-span-1">
+              <div className="text-3xl md:text-4xl font-bold text-white mb-1">120+</div>
+              <div className="text-sm font-medium opacity-80">Countries</div>
             </div>
           </div>
         </motion.div>

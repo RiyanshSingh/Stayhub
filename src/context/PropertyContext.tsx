@@ -89,9 +89,11 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 await fetchProperties();
                 await fetchUserProperties();
             } else {
-                throw new Error("Failed to add property");
+                const errorData = await response.json();
+                const errorMessage = errorData.error || errorData.message || JSON.stringify(errorData);
+                throw new Error(errorMessage);
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error adding property:", error);
             throw error;
         }
@@ -166,7 +168,7 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const addToWishlist = async (hotel: Hotel) => {
         try {
             const token = localStorage.getItem("auth_token");
-            const response = await fetch('/api/wishlist', {
+            const response = await fetch('/api/wishlist/toggle', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -185,9 +187,13 @@ export const PropertyProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const removeFromWishlist = async (hotelId: string) => {
         try {
             const token = localStorage.getItem("auth_token");
-            const response = await fetch(`/api/wishlist/${hotelId}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
+            const response = await fetch('/api/wishlist/toggle', {
+                method: 'POST', // Toggle endpoint uses POST
+                headers: {
+                    'Content-Type': 'application/json', // Added Content-Type
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ property_id: hotelId }) // Send ID in body
             });
             if (response.ok) {
                 await fetchWishlist();

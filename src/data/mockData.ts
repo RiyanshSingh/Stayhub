@@ -31,8 +31,10 @@ export interface Hotel {
     name: string;
     avatar: string;
     responseRate: number;
+    responseRate: number;
     responseTime: string;
   };
+  status?: 'pending' | 'approved' | 'rejected';
 }
 
 export interface Room {

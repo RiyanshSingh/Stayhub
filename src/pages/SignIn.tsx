@@ -58,9 +58,22 @@ const SignIn = () => {
 
     const toggleMode = () => {
         setIsLogin(!isLogin);
-        // Clear errors or reset specific fields if needed
     };
 
+    // Backup Codes State
+    const [showBackupModal, setShowBackupModal] = useState(false);
+    const [backupCodes, setBackupCodes] = useState<string[]>([]);
+
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(backupCodes.join("\n"));
+        toast({ title: "Copied!", description: "Backup codes copied to clipboard." });
+    };
+
+    const closeBackupModal = () => {
+        setShowBackupModal(false);
+        const from = location.state?.from?.pathname || "/";
+        navigate(from, { replace: true });
+    };
     return (
         <div className="min-h-screen bg-background">
             <Header />
@@ -250,6 +263,41 @@ const SignIn = () => {
                     </motion.div>
                 </div>
             </main>
+
+            {showBackupModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="bg-card w-full max-w-md rounded-2xl shadow-2xl p-6 border border-border"
+                    >
+                        <div className="text-center mb-6">
+                            <div className="w-12 h-12 bg-green-100 text-green-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <Lock className="w-6 h-6" />
+                            </div>
+                            <h2 className="text-xl font-bold mb-2">Save Your Backup Codes</h2>
+                            <p className="text-sm text-muted-foreground">
+                                Copy these codes to a safe place. You can use them to recover your account if you lose access to your password or security question.
+                            </p>
+                        </div>
+
+                        <div className="bg-muted p-4 rounded-xl mb-6 font-mono text-center tracking-widest space-y-2">
+                            {backupCodes.map((code) => (
+                                <div key={code} className="text-lg font-bold">{code}</div>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-3">
+                            <Button variant="outline" className="flex-1" onClick={copyToClipboard}>
+                                Copy Codes
+                            </Button>
+                            <Button className="flex-1" onClick={closeBackupModal}>
+                                I've Saved Them
+                            </Button>
+                        </div>
+                    </motion.div>
+                </div>
+            )}
 
             <Footer />
         </div>

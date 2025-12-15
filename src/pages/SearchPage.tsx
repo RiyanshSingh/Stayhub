@@ -10,6 +10,7 @@ import {
   X,
   Star,
   ChevronDown,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,12 +43,14 @@ const SearchPage = () => {
   const locationParam = searchParams.get("location") || "";
   const categoryParam = searchParams.get("category") || "";
 
+  const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
-  const [priceRange, setPriceRange] = useState([1000]);
+  const [priceRange, setPriceRange] = useState([50000]); // Increased range
   const [selectedAmenities, setSelectedAmenities] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(
     categoryParam ? [categoryParam] : []
   );
+  const [freeCancellation, setFreeCancellation] = useState(false); // New state
   const [sortBy, setSortBy] = useState("relevance");
   const [showFilters, setShowFilters] = useState(false);
 
@@ -87,12 +90,26 @@ const SearchPage = () => {
     location: p.location || '',
     city: p.city || '',
     country: p.country || '',
+    freeCancellation: p.freeCancellation || false, // Ensure this field exists
   }));
 
   const allHotels = [...hotels, ...dbPropertiesMapped];
 
   const filteredHotels = useMemo(() => {
     let filtered = allHotels.filter((hotel) => {
+
+      // Search Query filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        const matchName = hotel.name.toLowerCase().includes(query);
+        const matchCity = hotel.city.toLowerCase().includes(query);
+        const matchCountry = hotel.country.toLowerCase().includes(query);
+        const matchLocation = hotel.location.toLowerCase().includes(query);
+
+        if (!matchName && !matchCity && !matchCountry && !matchLocation) {
+          return false;
+        }
+      }
 
       // Location filter
       if (locationParam) {
@@ -124,6 +141,11 @@ const SearchPage = () => {
         if (!hasAllAmenities) return false;
       }
 
+      // Free Cancellation filter
+      if (freeCancellation && !hotel.freeCancellation) {
+        return false;
+      }
+
       return true;
     });
 
@@ -144,7 +166,7 @@ const SearchPage = () => {
     }
 
     return filtered;
-  }, [locationParam, priceRange, selectedCategories, selectedAmenities, sortBy]);
+  }, [locationParam, priceRange, selectedCategories, selectedAmenities, sortBy, searchQuery, freeCancellation]);
 
   const toggleAmenity = (amenity: string) => {
     setSelectedAmenities((prev) =>
@@ -163,15 +185,17 @@ const SearchPage = () => {
   };
 
   const clearFilters = () => {
-    setPriceRange([1000]);
+    setPriceRange([50000]);
     setSelectedAmenities([]);
     setSelectedCategories([]);
+    setFreeCancellation(false);
   };
 
   const activeFiltersCount =
-    (priceRange[0] < 1000 ? 1 : 0) +
+    (priceRange[0] < 50000 ? 1 : 0) +
     selectedAmenities.length +
-    selectedCategories.length;
+    selectedCategories.length +
+    (freeCancellation ? 1 : 0);
 
   const FilterContent = () => (
     <div className="space-y-8">
@@ -181,14 +205,27 @@ const SearchPage = () => {
         <Slider
           value={priceRange}
           onValueChange={setPriceRange}
-          max={1000}
-          step={10}
+          max={50000}
+          step={500}
           className="mb-4"
         />
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">₹0</span>
           <span className="text-muted-foreground">₹{priceRange[0]}+</span>
         </div>
+      </div>
+
+      {/* Free Cancellation Toggle */}
+      <div>
+        <h4 className="font-semibold text-foreground mb-4">Booking Options</h4>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <Checkbox
+            checked={freeCancellation}
+            onCheckedChange={(checked) => setFreeCancellation(!!checked)}
+          />
+          <span className="text-foreground">Free Cancellation</span>
+          <Badge variant="outline" className="ml-auto text-xs font-normal">Popular</Badge>
+        </label>
       </div>
 
       {/* Categories */}
@@ -255,7 +292,17 @@ const SearchPage = () => {
               </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-col md:flex-row gap-3 items-center">
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search properties..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+
               {/* Sort */}
               <Select value={sortBy} onValueChange={setSortBy}>
                 <SelectTrigger className="w-48">

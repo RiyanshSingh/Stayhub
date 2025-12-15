@@ -14,7 +14,7 @@ interface AuthContextType {
     user: User | null;
     login: (email: string, password: string) => Promise<void>;
     loginWithGoogle: () => Promise<void>;
-    register: (name: string, email: string, password: string, securityQuestion?: string, securityAnswer?: string) => Promise<void>;
+    register: (name: string, email: string, password: string, securityQuestion?: string, securityAnswer?: string) => Promise<string[] | void>;
     logout: () => void;
     isAuthenticated: boolean;
     token: string | null;
@@ -101,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 // Also store user data
                 localStorage.setItem("user_data", JSON.stringify(data.user));
                 setUser(data.user);
+                return data.backupCodes; // Return codes if available
             } else {
                 throw new Error(data.message || 'Registration failed');
             }

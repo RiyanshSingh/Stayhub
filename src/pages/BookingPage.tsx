@@ -11,6 +11,8 @@ import { useAuth } from "@/context/AuthContext";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 
+import { Textarea } from "@/components/ui/textarea";
+
 const BookingPage = () => {
     const { slug } = useParams();
     const location = useLocation();
@@ -20,23 +22,22 @@ const BookingPage = () => {
     const [loading, setLoading] = useState(false);
     const [bookingSuccess, setBookingSuccess] = useState(false);
     const [paymentMethod, setPaymentMethod] = useState<'card' | 'paypal' | 'apple' | 'upi' | 'banking'>('card');
+    const [specialRequests, setSpecialRequests] = useState("");
+
+    // Guest checkout state
+    const [guestName, setGuestName] = useState("");
+    const [guestEmail, setGuestEmail] = useState("");
+    const [guestPhone, setGuestPhone] = useState("");
 
     // State from navigation
     const bookingData = location.state;
 
     useEffect(() => {
-        if (!isAuthenticated) {
-            toast({
-                title: "Login Required",
-                description: "Please sign in to complete your booking.",
-                variant: "destructive",
-            });
-            navigate("/signin", { state: { from: location } });
-        } else if (!bookingData) {
+        if (!bookingData) {
             // If accessed directly without state, go back
-            navigate(`/hotel/₹{slug}`);
+            navigate(`/hotel/${slug}`);
         }
-    }, [isAuthenticated, bookingData, navigate, location, slug]);
+    }, [bookingData, navigate, slug]);
 
     const [cardNumber, setCardNumber] = useState("");
     const [expiry, setExpiry] = useState("");
@@ -52,13 +53,31 @@ const BookingPage = () => {
         setLoading(true);
 
         try {
+
             const token = localStorage.getItem("auth_token");
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json'
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
+            // Validate guest details
+            if (!isAuthenticated) {
+                if (!guestName || !guestEmail || !guestPhone) {
+                    toast({
+                        title: "Guest Details Required",
+                        description: "Please fill in your contact information.",
+                        variant: "destructive"
+                    });
+                    setLoading(false);
+                    return;
+                }
+            }
+
             const response = await fetch('/api/bookings', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                headers,
                 body: JSON.stringify({
                     property_id: safeHotel?.id,
                     property_name: safeHotel?.name,
@@ -68,7 +87,12 @@ const BookingPage = () => {
                     guests: guests,
                     total_price: totalPrice,
                     nights: nights,
-                    payment_method: paymentMethod
+                    payment_method: paymentMethod,
+                    special_requests: specialRequests,
+                    // Guest details
+                    guest_name: guestName,
+                    guest_email: guestEmail,
+                    guest_phone: guestPhone
                 })
             });
 
@@ -97,7 +121,7 @@ const BookingPage = () => {
         return (
             <div className="min-h-screen bg-background flex flex-col">
                 <Header />
-                <main className="flex-1 flex items-center justify-center p-4">
+                <main className="flex-1 flex items-center justify-center p-4 pt-24">
                     <div className="max-w-md w-full text-center space-y-6">
                         <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
                             <CheckCircle className="w-10 h-10 text-green-600 dark:text-green-400" />
@@ -139,6 +163,15 @@ const BookingPage = () => {
                         <div className="flex flex-col gap-3">
                             <Button size="lg" className="w-full" onClick={() => navigate('/dashboard')}>
                                 Go to My Bookings
+                            </Button>
+                            <Button variant="outline" size="lg" className="w-full" onClick={() => {
+                                const query = safeHotel.coordinates
+                                    ? `${safeHotel.coordinates.lat},${safeHotel.coordinates.lng}`
+                                    : `${safeHotel.name}, ${safeHotel.city}`;
+                                window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`, '_blank');
+                            }}>
+                                <MapPin className="w-4 h-4 mr-2" />
+                                Get Directions
                             </Button>
                             <Button variant="outline" size="lg" className="w-full" onClick={() => navigate('/')}>
                                 Back to Home
@@ -186,10 +219,65 @@ const BookingPage = () => {
                                         </div>
                                         <Button variant="link" className="h-auto p-0" onClick={() => navigate(-1)}>Edit</Button>
                                     </div>
+
+                                    {/* Special Requests */}
+                                    <div className="pt-4 border-t border-border mt-4">
+                                        <h3 className="font-medium mb-3">Special Requests</h3>
+                                        <Textarea
+                                            placeholder="e.g. Late check-in, quiet room, extra pillows... (Optional)"
+                                            className="resize-none"
+                                            value={specialRequests}
+                                            onChange={(e) => setSpecialRequests(e.target.value)}
+                                        />
+                                    </div>
                                 </div>
                             </section>
 
                             <Separator />
+
+                            {/* Guest Details (only if not logged in) */}
+                            {!isAuthenticated && (
+                                <section className="py-2">
+                                    <h2 className="text-xl font-semibold mb-4">Guest Details</h2>
+                                    <div className="space-y-4">
+                                        <div className="space-y-2">
+                                            <Label>Full Name</Label>
+                                            <Input
+                                                placeholder="John Doe"
+                                                value={guestName}
+                                                onChange={(e) => setGuestName(e.target.value)}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Email</Label>
+                                                <Input
+                                                    type="email"
+                                                    placeholder="john@example.com"
+                                                    value={guestEmail}
+                                                    onChange={(e) => setGuestEmail(e.target.value)}
+                                                    required
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Phone Number</Label>
+                                                <Input
+                                                    type="tel"
+                                                    placeholder="+91 99999 99999"
+                                                    value={guestPhone}
+                                                    onChange={(e) => setGuestPhone(e.target.value)}
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="bg-blue-50 text-blue-800 p-3 rounded-lg text-sm">
+                                            We'll send your booking confirmation to this email. You can create an account later.
+                                        </div>
+                                    </div>
+                                    <Separator className="mt-8" />
+                                </section>
+                            )}
 
                             {/* Payment Element */}
                             <section>

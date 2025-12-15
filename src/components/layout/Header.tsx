@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, User as UserIcon, Building2, Search, Heart, LogOut, Sun, Moon } from "lucide-react";
+import { Menu, X, User as UserIcon, Compass, Search, Heart, LogOut, Sun, Moon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
@@ -47,17 +47,17 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center shadow-glow">
-              <Building2 className="w-5 h-5 text-primary-foreground" />
+          <Link to="/" className="flex items-center gap-2.5 group">
+            <div className="w-10 h-10 rounded-xl bg-accent flex items-center justify-center shadow-lg group-hover:shadow-glow transition-all duration-300">
+              <Compass className="w-6 h-6 text-white" />
             </div>
             <span
               className={cn(
-                "text-xl font-bold hidden sm:block transition-colors",
-                isTransparent ? "text-card" : "text-foreground"
+                "text-2xl font-bold hidden sm:block tracking-tight",
+                isTransparent ? "text-white" : "text-foreground"
               )}
             >
-              StayHub
+              Stay<span className="text-accent">Hub</span>
             </span>
           </Link>
 
@@ -82,13 +82,13 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
               Explore
             </Link>
             <Link
-              to="/search?category=deals"
+              to="/destinations"
               className={cn(
                 "text-sm font-medium transition-colors hover:text-primary",
                 isTransparent ? "text-card/90" : "text-muted-foreground"
               )}
             >
-              Deals
+              Destinations
             </Link>
             <Link
               to="/owner"
@@ -107,8 +107,11 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
               variant={isTransparent ? "glass" : "ghost"}
               size="icon"
               className="rounded-full"
+              asChild
             >
-              <Heart className="w-5 h-5" />
+              <Link to="/wishlist">
+                <Heart className="w-5 h-5" />
+              </Link>
             </Button>
 
             <Button
@@ -200,7 +203,7 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
                 className="flex items-center gap-3 py-3 text-foreground hover:text-primary transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
-                <Building2 className="w-5 h-5" />
+                <Compass className="w-5 h-5" />
                 Home
               </Link>
               <Link
@@ -216,7 +219,7 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
                 className="flex items-center gap-3 py-3 text-foreground hover:text-primary transition-colors"
                 onClick={() => setIsMenuOpen(false)}
               >
-                <Building2 className="w-5 h-5" />
+                <Compass className="w-5 h-5" />
                 List Your Property
               </Link>
               <Link

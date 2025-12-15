@@ -16,12 +16,108 @@ import { format } from "date-fns";
 
 
 
+
 const SectionHeader = ({ title, description }: { title: string, description: string }) => (
     <div className="mb-6">
         <h2 className="text-2xl font-bold">{title}</h2>
         <p className="text-muted-foreground">{description}</p>
     </div>
 );
+
+const BackupCodesManager = () => {
+    const [codes, setCodes] = useState<{ code: string, used: boolean }[]>([]);
+    const [showCodes, setShowCodes] = useState(false);
+    const [loading, setLoading] = useState(false);
+    // const { toast } = useToast(); // If needed for alerts, currently using window.alert
+
+    const fetchCodes = async () => {
+        setLoading(true);
+        try {
+            const token = localStorage.getItem("auth_token");
+            const response = await fetch('/api/auth/backup-codes', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setCodes(data.backupCodes);
+                setShowCodes(true);
+            }
+        } catch (error) {
+            console.error("Failed to fetch codes");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const regenerateCodes = async () => {
+        if (!confirm("Are you sure? Old codes will stop working immediately.")) return;
+        setLoading(true);
+        try {
+            const token = localStorage.getItem("auth_token");
+            const response = await fetch('/api/auth/regenerate-backup-codes', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                // Map the string array to object format to match state
+                setCodes(data.backupCodes.map((c: string) => ({ code: c, used: false })));
+                alert("New codes generated!");
+            }
+        } catch (error) {
+            console.error("Failed to regenerate");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const copyCodes = () => {
+        const text = codes.filter(c => !c.used).map(c => c.code).join("\n");
+        navigator.clipboard.writeText(text);
+        alert("Copied unused codes to clipboard!");
+    };
+
+    return (
+        <div className="bg-muted/30 border border-border rounded-lg p-4">
+            <div className="flex items-center justify-between mb-4">
+                <div>
+                    <h5 className="font-medium flex items-center gap-2">
+                        <Shield className="w-4 h-4 text-green-600" />
+                        Backup Verification Codes
+                    </h5>
+                    <p className="text-sm text-muted-foreground">
+                        Use these codes to log in if you lose access to your password/security question.
+                    </p>
+                </div>
+                {!showCodes ? (
+                    <Button variant="outline" size="sm" onClick={fetchCodes} disabled={loading}>
+                        {loading ? "Loading..." : "Reveal Codes"}
+                    </Button>
+                ) : (
+                    <div className="flex gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setShowCodes(false)}>Hide</Button>
+                        <Button variant="outline" size="sm" onClick={copyCodes}>Copy</Button>
+                        <Button variant="destructive" size="sm" onClick={regenerateCodes} disabled={loading}>
+                            Regenerate
+                        </Button>
+                    </div>
+                )}
+            </div>
+
+            {showCodes && (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-4 font-mono text-sm">
+                    {codes.map((item, idx) => (
+                        <div key={idx} className={`p-2 rounded border text-center ${item.used ? 'bg-muted text-muted-foreground line-through' : 'bg-background border-border'}`}>
+                            {item.code}
+                        </div>
+                    ))}
+                    {codes.length === 0 && <p className="col-span-3 text-center text-muted-foreground">No codes generated yet.</p>}
+                </div>
+            )}
+        </div>
+    );
+};
+
 
 export const MyBookings = () => {
     const [bookings, setBookings] = useState<any[]>([]);
@@ -358,6 +454,9 @@ export const ProfileDetails = () => {
         const newErrors: { [key: string]: string } = {};
         if (!name.trim()) newErrors.name = "Full Name is required";
         if (!phone.trim()) newErrors.phone = "Phone number is required";
+        if (!gender.trim()) newErrors.gender = "Gender is required";
+        if (!address.trim()) newErrors.address = "Address is required";
+
         // Simple phone regex for validation
         const phoneRegex = /^\+?[\d\s-]{10,}$/;
         if (phone && !phoneRegex.test(phone)) newErrors.phone = "Invalid phone number format";
@@ -471,7 +570,7 @@ export const ProfileDetails = () => {
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="phone">Phone Number</Label>
+                        <Label htmlFor="phone">Phone Number <span className="text-destructive">*</span></Label>
                         <Input
                             id="phone"
                             className={errors.phone ? "border-destructive focus-visible:ring-destructive" : ""}
@@ -483,10 +582,10 @@ export const ProfileDetails = () => {
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="gender">Gender (Optional)</Label>
+                        <Label htmlFor="gender">Gender <span className="text-destructive">*</span></Label>
                         <select
                             id="gender"
-                            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                            className={`flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${errors.gender ? "border-destructive focus-visible:ring-destructive" : ""}`}
                             value={gender}
                             onChange={(e) => setGender(e.target.value)}
                         >
@@ -496,17 +595,26 @@ export const ProfileDetails = () => {
                             <option value="Non-binary">Non-binary</option>
                             <option value="Prefer not to say">Prefer not to say</option>
                         </select>
+                        {errors.gender && <p className="text-xs text-destructive">{errors.gender}</p>}
                     </div>
 
                     <div className="space-y-2 md:col-span-2">
-                        <Label htmlFor="address">Address (Optional)</Label>
+                        <Label htmlFor="address">Address <span className="text-destructive">*</span></Label>
                         <Input
                             id="address"
+                            className={errors.address ? "border-destructive focus-visible:ring-destructive" : ""}
                             value={address}
                             onChange={(e) => setAddress(e.target.value)}
                             placeholder="123 Main St, City, Country"
                         />
+                        {errors.address && <p className="text-xs text-destructive">{errors.address}</p>}
                     </div>
+                </div>
+
+                {/* Backup Codes Section */}
+                <div className="pt-6 border-t border-border/50">
+                    <h4 className="font-semibold mb-2">Account Security</h4>
+                    <BackupCodesManager />
                 </div>
 
                 {/* Feedback Messages */}
@@ -693,7 +801,18 @@ export const MyProperties = () => {
                                 <div>
                                     <h3 className="font-semibold text-lg">{property.name}</h3>
                                     <p className="text-muted-foreground text-sm">{property.location}, {property.city}</p>
-                                    <p className="font-medium mt-1">{property.currency} {property.pricePerNight} <span className="text-sm font-normal text-muted-foreground">/ night</span></p>
+                                    <p className="text-muted-foreground text-sm">{property.location}, {property.city}</p>
+                                    <div className="flex items-center gap-2 mt-2">
+                                        <p className="font-medium">{property.currency} {property.pricePerNight} <span className="text-sm font-normal text-muted-foreground">/ night</span></p>
+                                        {property.status && (
+                                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${property.status === 'approved' ? 'bg-green-100 text-green-700 border border-green-200' :
+                                                property.status === 'rejected' ? 'bg-red-100 text-red-700 border border-red-200' :
+                                                    'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                                                }`}>
+                                                {property.status}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                                 <div className="flex gap-2 mt-4 md:mt-0 self-end">
                                     <Button variant="outline" size="sm" asChild>

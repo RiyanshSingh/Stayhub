@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Heart, Star, MapPin, Wifi, Car, Coffee, Sparkles } from "lucide-react";
+import { Heart, Star, MapPin, Wifi, Car, Coffee, Sparkles, CheckCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Hotel } from "@/data/mockData";
@@ -55,7 +55,7 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
 
   if (variant === "horizontal") {
     return (
-      <Link to={`/hotel/${hotel.slug}`}>
+      <Link to={`/hotel/${hotel.slug || hotel.id}`}>
         <motion.div
           whileHover={{ y: -4 }}
           className="group flex flex-col md:flex-row bg-card rounded-2xl overflow-hidden shadow-card hover:shadow-card-hover transition-all duration-300 border border-border/50"
@@ -97,8 +97,9 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
                 <Badge variant="outline" className={cn("mb-2", getCategoryBadge())}>
                   {hotel.category.charAt(0).toUpperCase() + hotel.category.slice(1)}
                 </Badge>
-                <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors">
+                <h3 className="font-semibold text-lg text-foreground group-hover:text-primary transition-colors flex items-center gap-1">
                   {hotel.name}
+                  <CheckCircle className="w-3.5 h-3.5 fill-blue-500 text-white" />
                 </h3>
               </div>
               <div className="text-right flex-shrink-0">
@@ -139,7 +140,7 @@ const HotelCard = ({ hotel, variant = "default" }: HotelCardProps) => {
   }
 
   return (
-    <Link to={`/hotel/${hotel.slug}`}>
+    <Link to={`/hotel/${hotel.slug || hotel.id}`}>
       <motion.div
         whileHover={{ y: -8 }}
         className="group bg-card rounded-2xl overflow-hidden shadow-card hover:shadow-card-hover transition-all duration-300 border border-border/50"
