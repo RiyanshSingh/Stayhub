@@ -27,6 +27,8 @@ import ChatWidget from "./components/chat/ChatWidget";
 
 const queryClient = new QueryClient();
 
+import { Analytics } from "@vercel/analytics/react";
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -75,6 +77,7 @@ const App = () => (
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              <Analytics />
             </BrowserRouter>
           </TooltipProvider>
         </PropertyProvider>
