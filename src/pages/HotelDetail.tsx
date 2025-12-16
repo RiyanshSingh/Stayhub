@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useParams, Link, useNavigate, useLocation } from "react-router-dom";
+import SEO from "@/components/common/SEO";
 import { motion } from "framer-motion";
 import {
   ChevronLeft,
@@ -181,6 +182,13 @@ const HotelDetail = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {safeHotel && (
+        <SEO
+          title={`${safeHotel.name} | StayHub`}
+          description={safeHotel.description?.slice(0, 150) || `Book your stay at ${safeHotel.name}. Luxury accommodation in ${safeHotel.city}.`}
+          image={safeHotel.images?.[0]}
+        />
+      )}
       <Header />
 
       {/* Hero Gallery */}

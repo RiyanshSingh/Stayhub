@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useSearchParams, Link } from "react-router-dom";
+import SEO from "@/components/common/SEO";
 import { motion } from "framer-motion";
 import {
   Filter,
@@ -275,8 +276,15 @@ const SearchPage = () => {
     </div>
   );
 
+
+  // ... imports remain the same
+
   return (
     <div className="min-h-screen bg-background">
+      <SEO
+        title={locationParam ? `Hotels in ${locationParam} | StayHub search` : "Explore Hotels | StayHub"}
+        description="Find the best hotels, resorts, and vacation rentals. Filter by price, amenities, and more."
+      />
       <Header />
 
       {/* Search Header */}

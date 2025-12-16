@@ -8,9 +8,12 @@ import CTASection from "@/components/home/CTASection";
 import FeaturesSection from "@/components/home/FeaturesSection";
 import TestimonialsSection from "@/components/home/TestimonialsSection";
 
+import SEO from "@/components/common/SEO";
+
 const Index = () => {
   return (
     <div className="min-h-screen bg-background">
+      <SEO />
       <Header variant="transparent" />
       <main>
         <HeroSection />
