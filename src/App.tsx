@@ -25,9 +25,9 @@ import { ThemeProvider } from "./context/ThemeContext";
 import ScrollToTop from "./components/ScrollToTop";
 import ChatWidget from "./components/chat/ChatWidget";
 
-const queryClient = new QueryClient();
-
 import { Analytics } from "@vercel/analytics/react";
+
+const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

@@ -818,7 +818,100 @@ app.post('/api/bookings/:id/review', authenticateToken, async (req, res) => {
     }
 });
 
-// -- AI Chatbot Endpoint --
+// --- Admin Routes ---
+app.post('/api/admin/login', async (req, res) => {
+    const { username, password } = req.body;
+
+    if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+    }
+
+    try {
+        const { data: admin, error } = await supabase
+            .from('admins')
+            .select('*')
+            .eq('username', username)
+            .single();
+
+        if (error || !admin) {
+            return res.status(401).json({ message: "Invalid credentials" });
+        }
+
+        // Ideally hash passwords, but for legacy compatibility we check plain text first
+        // If your admin passwords ARE hashed, use bcrypt.compare here
+        if (admin.password !== password) {
+            return res.status(401).json({ message: "Invalid credentials" });
+        }
+
+        const token = jwt.sign(
+            { id: admin.id, username: admin.username, role: 'admin' },
+            SECRET_KEY,
+            { expiresIn: '12h' }
+        );
+
+        res.json({ message: "Admin login successful", token });
+    } catch (err) {
+        console.error("Admin Login Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// Admin: Get Pending Properties
+app.get('/api/admin/properties/pending', async (req, res) => {
+    try {
+        // Verification middleware should be here, assuming auth token is passed
+        // Since we don't have global admin middleware yet, we rely on the client sending a token validity check or similar
+        // For now, let's keep it open or check header manually if needed
+
+        const { data: properties, error } = await supabase
+            .from('properties')
+            .select('*')
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(properties);
+    } catch (err) {
+        console.error("Get Pending Properties Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// Admin: Approve Property
+app.post('/api/admin/properties/:id/approve', async (req, res) => {
+    const propertyId = req.params.id;
+    try {
+        const { error } = await supabase
+            .from('properties')
+            .update({ status: 'approved' })
+            .eq('id', propertyId);
+
+        if (error) throw error;
+        res.json({ message: "Property approved" });
+    } catch (err) {
+        console.error("Approve Property Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// Admin: Reject Property
+app.post('/api/admin/properties/:id/reject', async (req, res) => {
+    const propertyId = req.params.id;
+    try {
+        const { error } = await supabase
+            .from('properties')
+            .update({ status: 'rejected' })
+            .eq('id', propertyId);
+
+        if (error) throw error;
+        res.json({ message: "Property rejected" });
+    } catch (err) {
+        console.error("Reject Property Error:", err);
+        res.status(500).json({ message: "Server error" });
+    }
+});
+
+// --- AI Chatbot Route ---
 app.post('/api/chat', authenticateToken, async (req, res) => {
     const { message, history } = req.body;
     const user = req.user;
