@@ -28,6 +28,7 @@ import ChatWidget from "./components/chat/ChatWidget";
 const queryClient = new QueryClient();
 
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -78,6 +79,7 @@ const App = () => (
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <Analytics />
+              <SpeedInsights />
             </BrowserRouter>
           </TooltipProvider>
         </PropertyProvider>
