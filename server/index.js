@@ -954,9 +954,9 @@ if (fs.existsSync(distPath)) {
 // Locally 'node server/index.js', we DO want to listen.
 
 // Robust check:
-import { fileURLToPath } from 'url';
-const currentFilePath = fileURLToPath(import.meta.url);
-if (process.argv[1] === currentFilePath) {
+// Safe startup check that works in both CJS and ESM environments for Vercel
+// Vercel exports the app, so we only listen if we are NOT in a Vercel environment (or explicitly local)
+if (!process.env.VERCEL) {
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
     });
