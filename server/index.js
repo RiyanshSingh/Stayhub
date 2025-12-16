@@ -33,15 +33,23 @@ app.use(express.json({ limit: '50mb' }));
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
+let supabase;
+
 if (!supabaseUrl || !supabaseKey) {
     console.error("Missing SUPABASE_URL or SUPABASE_KEY in environment variables.");
-    console.error("Please create a .env file based on .env.example");
-    // We don't exit process to allow it to run, but DB calls will fail
+    // Initialize a dummy client or validation will fail on usage, but server won't crash on boot
+    supabase = {
+        from: () => ({ select: () => ({ eq: () => ({ single: () => ({ error: { message: "DB Config Missing" } }) }) }) })
+    };
+} else {
+    try {
+        supabase = createClient(supabaseUrl, supabaseKey);
+        console.log(`Connected to Supabase at ${supabaseUrl}`);
+    } catch (err) {
+        console.error("Failed to initialize Supabase:", err.message);
+        supabase = null; // or dummy
+    }
 }
-
-const supabase = createClient(supabaseUrl, supabaseKey);
-
-console.log(`Connected to Supabase at ${supabaseUrl}`);
 
 // Helper to create notification
 const createNotification = async (userId, type, message, link = null) => {
