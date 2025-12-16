@@ -1193,6 +1193,24 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
+// Serve Static Files (Frontend)
+const distPath = path.join(__dirname, '../dist');
+// Check if dist exists (it might not during dev or if user forgot to build)
+const fs = require('fs');
+if (fs.existsSync(distPath)) {
+    console.log("Serving static files from:", distPath);
+    app.use(express.static(distPath));
+
+    // Handle SPA routing: return index.html for any unknown route NOT starting with /api
+    app.get('*', (req, res) => {
+        if (!req.path.startsWith('/api')) {
+            res.sendFile(path.join(distPath, 'index.html'));
+        }
+    });
+} else {
+    console.log("No dist/ folder found. API only mode.");
+}
+
 // Start Server only if run directly
 if (process.argv[1] === __filename) {
     app.listen(PORT, () => {
