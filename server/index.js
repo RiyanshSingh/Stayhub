@@ -1,25 +1,20 @@
-import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
+import express from 'express';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import cors from 'cors';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
 import path from 'path';
+import fs from 'fs';
 
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const express = require('express');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const cors = require('cors');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-require('dotenv').config(); // Load env vars
+// Load env vars
+dotenv.config();
 
 // Gemini API Setup
 const genAI = process.env.GEMINI_API_KEY
     ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY)
     : null;
-
-// Supabase Client
-const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -79,7 +74,7 @@ const authenticateToken = (req, res, next) => {
     });
 };
 
-// Routes
+// --- ROUTES ---
 
 // Helper to link guest bookings to new user
 const linkGuestBookings = async (userId, email) => {
@@ -96,8 +91,6 @@ const linkGuestBookings = async (userId, email) => {
         console.error("Exception linking guest bookings:", err);
     }
 };
-
-// ...
 
 // Helper to generate IDs
 function generateBackupCodes() {
@@ -645,8 +638,6 @@ const optionalAuthenticateToken = (req, res, next) => {
     });
 };
 
-// ...
-
 // Create Booking (Supports Auth User OR Guest)
 app.post('/api/bookings', optionalAuthenticateToken, async (req, res) => {
     const {
@@ -798,353 +789,96 @@ app.post('/api/bookings/:id/cancel', authenticateToken, async (req, res) => {
 });
 
 // Post Review
-app.post('/api/reviews', authenticateToken, async (req, res) => {
-    const { property_id, booking_id, rating, comment } = req.body;
+app.post('/api/bookings/:id/review', authenticateToken, async (req, res) => {
+    const bookingId = req.params.id;
+    const { rating, comment } = req.body;
 
     try {
-        // Verify booking matches user
-        const { data: booking, error: bookingError } = await supabase
-            .from('bookings')
-            .select('id')
-            .eq('id', booking_id)
-            .eq('user_id', req.user.id)
-            .single();
+        // Check if booking exists
+        const { data: booking } = await supabase.from('bookings').select('property_id').eq('id', bookingId).single();
+        if (!booking) return res.status(404).json({ message: "Booking not found" });
 
-        if (bookingError || !booking) return res.status(403).json({ message: "Invalid booking" });
-
-        const { data, error } = await supabase
+        const { error } = await supabase
             .from('reviews')
-            .insert([{ user_id: req.user.id, property_id, booking_id, rating, comment }])
-            .select()
-            .single();
+            .insert([{
+                booking_id: bookingId,
+                property_id: booking.property_id,
+                user_id: req.user.id,
+                rating,
+                comment
+            }]);
 
         if (error) throw error;
+        res.json({ message: "Review submitted" });
+        createNotification(req.user.id, 'system', `Review submitted for your stay`, null);
 
-        createNotification(req.user.id, 'review', `Review submitted for booking #${booking_id}`, `/dashboard`);
-        res.status(201).json({ message: "Review submitted", id: data.id });
     } catch (err) {
-        console.error("Submit Review Error:", err);
+        console.error("Post Review Error:", err);
         res.status(500).json({ message: "Error submitting review" });
     }
 });
 
-// Create Support Ticket
-app.post('/api/support/tickets', authenticateToken, async (req, res) => {
-    const { booking_id, subject, message } = req.body;
-
-    try {
-        const { data: ticket, error: ticketError } = await supabase
-            .from('support_tickets')
-            .insert([{ user_id: req.user.id, booking_id, subject }])
-            .select()
-            .single();
-
-        if (ticketError) throw ticketError;
-
-        const ticketId = ticket.id;
-
-        const { error: msgError } = await supabase
-            .from('messages')
-            .insert([{ ticket_id: ticketId, sender: 'user', text: message }]);
-
-        if (msgError) throw msgError;
-
-        res.status(201).json({ message: "Ticket created", id: ticketId });
-        createNotification(req.user.id, 'support', `Support ticket #${ticketId} created`, `/dashboard`);
-
-    } catch (err) {
-        console.error("Create Ticket Error:", err);
-        res.status(500).json({ message: "Error creating ticket" });
-    }
-});
-
-// --- Wishlist Routes ---
-
-// Get User Wishlist
-app.get('/api/wishlist', authenticateToken, async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from('wishlist')
-            .select(`
-                wishlist_id:id,
-                saved_at:created_at,
-                property:properties (*)
-            `)
-            .eq('user_id', req.user.id);
-
-        if (error) throw error;
-
-        // Transform response to match previous flat structure if needed, or update frontend to read property object
-        // Previous SQL: SELECT p.*, w.id as wishlist_id ...
-        // So it returned a flat object of property fields + wishlist_id.
-        // We must flatten it to avoid breaking frontend.
-
-        const flattened = data.map(item => ({
-            ...item.property,
-            wishlist_id: item.wishlist_id,
-            saved_at: item.saved_at
-        }));
-
-        res.json(flattened);
-    } catch (err) {
-        console.error("Get Wishlist Error:", err);
-        res.status(500).json({ message: "Database error" });
-    }
-});
-
-// Add/Remove Wishlist (Toggle)
-app.post('/api/wishlist/toggle', authenticateToken, async (req, res) => {
-    const { property_id } = req.body;
-    const userId = req.user.id;
-
-    try {
-        // Check if exists
-        const { data: existing, error: fetchError } = await supabase
-            .from('wishlist')
-            .select('id')
-            .eq('user_id', userId)
-            .eq('property_id', property_id)
-            .maybeSingle();
-
-        if (existing) {
-            // Remove
-            await supabase.from('wishlist').delete().eq('id', existing.id);
-            res.json({ message: "Removed from wishlist", added: false });
-        } else {
-            // Add
-            await supabase.from('wishlist').insert([{ user_id: userId, property_id }]);
-            res.json({ message: "Added to wishlist", added: true });
-        }
-    } catch (err) {
-        console.error("Toggle Wishlist Error:", err);
-        res.status(500).json({ message: "Error updating wishlist" });
-    }
-});
-
-
-// --- Notifications ---
-app.get('/api/notifications', authenticateToken, async (req, res) => {
-    try {
-        const { data, error } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('user_id', req.user.id)
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        res.json(data);
-    } catch (err) {
-        res.status(500).json({ message: "Error fetching notifications" });
-    }
-});
-
-app.put('/api/notifications/read-all', authenticateToken, async (req, res) => {
-    try {
-        await supabase
-            .from('notifications')
-            .update({ is_read: 1 })
-            .eq('user_id', req.user.id);
-        res.json({ message: "All marked as read" });
-    } catch (err) {
-        res.status(500).json({ message: "Error updating notifications" });
-    }
-});
-// --- Admin Routes ---
-
-// Admin Login
-// Admin Login
-app.post('/api/admin/login', async (req, res) => {
-    const { username, password } = req.body;
-
-    try {
-        const { data: admin, error } = await supabase
-            .from('admins')
-            .select('*')
-            .eq('username', username)
-            .single();
-
-        if (error || !admin) {
-            return res.status(401).json({ message: "Invalid credentials" });
-        }
-
-        // In a real app, compare hashed password. Here we compare plain text as per setup.
-        if (admin.password === password) {
-            const token = jwt.sign({ id: admin.id, role: 'admin' }, SECRET_KEY, { expiresIn: '24h' });
-            res.json({ message: "Admin login successful", token });
-        } else {
-            res.status(401).json({ message: "Invalid credentials" });
-        }
-    } catch (err) {
-        console.error("Admin Login Error:", err);
-        res.status(500).json({ message: "Server error" });
-    }
-});
-
-// Admin Middleware
-const authenticateAdmin = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    if (!token) return res.sendStatus(401);
-
-    jwt.verify(token, SECRET_KEY, (err, user) => {
-        if (err || user.role !== 'admin') return res.sendStatus(403);
-        req.user = user;
-        next();
-    });
-};
-
-// Get Pending Properties
-app.get('/api/admin/properties/pending', authenticateAdmin, async (req, res) => {
-    try {
-        const { data: properties, error } = await supabase
-            .from('properties')
-            .select('*, users(name, email)') // Join with users to see who posted it
-            .eq('status', 'pending')
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        res.json(properties);
-    } catch (err) {
-        console.error("Get Pending Properties Error:", err);
-        res.status(500).json({ message: "Database error" });
-    }
-});
-
-// Approve Property
-app.put('/api/admin/properties/:id/approve', authenticateAdmin, async (req, res) => {
-    const propertyId = req.params.id;
-    try {
-        const { error } = await supabase
-            .from('properties')
-            .update({ status: 'approved' })
-            .eq('id', propertyId);
-
-        if (error) throw error;
-
-        // Notify the user (optional, but good UX)
-        // We'd need to fetch the property first to get the user_id, but let's skip for simplicity/speed or add a quick fetch
-        const { data: prop } = await supabase.from('properties').select('user_id, name').eq('id', propertyId).single();
-        if (prop) {
-            createNotification(prop.user_id, 'system', `Your property "${prop.name}" has been approved and is now live!`, `/hotel/${prop.slug || propertyId}`);
-        }
-
-        res.json({ message: "Property approved successfully" });
-    } catch (err) {
-        console.error("Approve Property Error:", err);
-        res.status(500).json({ message: "Error approving property" });
-    }
-});
-
-
-// Chat Endpoint
-app.post('/api/chat', async (req, res) => {
+// -- AI Chatbot Endpoint --
+app.post('/api/chat', authenticateToken, async (req, res) => {
     const { message, history } = req.body;
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const user = req.user;
 
-    if (!genAI) {
-        return res.json({
-            response: "I'm ready to help, but my brain (API Key) is missing! Please ask the admin to add the GEMINI_API_KEY to the server."
-        });
-    }
+    if (!message) return res.status(400).json({ message: "Message required" });
 
     try {
-        let userContext = "";
-        let userName = "Guest";
-
-        // 1. Verify Token & Fetch User Context if logged in
-        if (token) {
-            try {
-                const decoded = jwt.verify(token, SECRET_KEY);
-                const userId = decoded.id;
-
-                // Fetch Profile
-                const { data: user } = await supabase.from('users').select('*').eq('id', userId).single();
-                if (user) {
-                    userName = user.name;
-                    userContext += `\nLogged-in User: ${user.name} (${user.email}). Phone: ${user.phone || 'Not set'}. Address: ${user.address || 'Not set'}.`;
-                }
-
-                // Fetch Recent Bookings
-                const { data: bookings } = await supabase
-                    .from('bookings')
-                    .select('id, property_name, check_in, check_out, status, total_price, payment_method, guests, special_requests')
-                    .eq('user_id', userId)
-                    .order('created_at', { ascending: false })
-                    .limit(3);
-
-                if (bookings && bookings.length > 0) {
-                    userContext += `\nRecent Bookings:\n${bookings.map(b => `- ${b.property_name} (${b.status}): ${b.check_in} to ${b.check_out}. Paid: ${b.total_price} via ${b.payment_method}. Guests: ${b.guests}. Notes: ${b.special_requests || 'None'}`).join('\n')}`;
-                } else {
-                    userContext += `\nNo recent bookings.`;
-                }
-
-                // Fetch User Properties (Host Context)
-                const { data: myProperties } = await supabase
-                    .from('properties')
-                    .select('name, city, status, price')
-                    .eq('user_id', userId);
-
-                if (myProperties && myProperties.length > 0) {
-                    userContext += `\nMy Listed Properties:\n${myProperties.map(p => `- ${p.name} in ${p.city} (${p.status}, ₹${p.price})`).join('\n')}`;
-                }
-
-                // Fetch Wishlist
-                const { data: wishlist } = await supabase
-                    .from('wishlist')
-                    .select('property_id')
-                    .eq('user_id', userId);
-
-                if (wishlist && wishlist.length > 0) {
-                    userContext += `\nItems in Wishlist: ${wishlist.length}`;
-                }
-
-            } catch (jwtErr) {
-                console.log("Chat Token Invalid/Expired:", jwtErr.message);
-                // Continue as guest
-            }
+        if (!genAI) {
+            return res.json({ response: "AI Service is not configured (Missing API Key)." });
         }
 
-        // 2. Fetch Global Hotel Context (Keep existing RAG-lite)
-        const { data: hotels } = await supabase
-            .from('properties')
-            .select('name, city, price, type, rating')
-            .eq('status', 'approved')
-            .limit(20);
+        // 1. Fetch User Context (Profile, Bookings)
+        // We already have `user` from token, but let's get full profile + bookings
+        const { data: fullProfile } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', user.id)
+            .single();
 
-        const hotelContext = hotels ? hotels.map(h => `- ${h.name} (${h.type}) in ${h.city}, approx ₹${h.price}/night. Rated ${h.rating || 'New'}`).join('\n') : "No hotels available right now.";
+        const { data: userBookings } = await supabase
+            .from('bookings')
+            .select('*, properties(name, location, city)')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false })
+            .limit(5);
 
-        // 3. Construct System Prompt
-        const systemPrompt = `You are StayHub AI, an expert travel assistant.
-        
-        Current User: ${userName}
+        // 2. Build System Prompt with Context
+        const userContext = `
+        User Name: ${fullProfile?.name || 'Guest'}
+        Email: ${fullProfile?.email || 'N/A'}
+        Phone: ${fullProfile?.phone || 'N/A'}
+        Recent Bookings: ${userBookings ? JSON.stringify(userBookings.map(b => ({
+            id: b.id,
+            property: b.properties?.name,
+            city: b.properties?.city,
+            dates: `${b.check_in} to ${b.check_out}`,
+            status: b.status
+        }))) : 'None'}
+        `;
+
+        const systemPrompt = `
+        You are "StayHub AI", a helpful travel assistant.
+        Current User Context:
         ${userContext}
         
-        Available Hotels:
-        ${hotelContext}
-        
-        Capabilities:
-        1. Answer questions about the user's bookings ("Where am I going next?").
-        2. Help update profile ("How do I change my phone number?").
-        3. Recommend hotels and explain booking.
-        4. If user is NOT logged in and asks to login/book, reply exactly: "[SHOW_LOGIN_FORM]" (nothing else).
-        
-        Rules:
-        - Be friendly and concise.
-        - If the user asks to login, strictly output keyphrase: "[SHOW_LOGIN_FORM]".
-        - Do not expose raw IDs.
-        
-        User Query: ${message}`;
+        Guidelines:
+        1. Helps users find hotels, manage bookings, and recover accounts.
+        2. If user asks to reset password, guide them to "Forgot Password" page or offer to send a link (simulated).
+        3. Be concise and friendly.
+        4. If asked about "my bookings", refer to the context provided above.
+        `;
 
-        // Sanitize history & Limit to last 10 messages
-        let validHistory = (history || []).filter(msg => msg.role === 'user' || msg.role === 'model');
-        if (validHistory.length > 10) validHistory = validHistory.slice(-10);
-        while (validHistory.length > 0 && validHistory[0].role === 'model') {
-            validHistory.shift();
-        }
+        // 3. Prepare Chat History for Gemini (Content-only)
+        const validHistory = history.map(h => ({
+            role: h.role === 'user' ? 'user' : 'model',
+            parts: [{ text: h.content }]
+        }));
 
-        // List of models to try in order of preference
-        const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-pro"];
+        // 4. Call Gemini with retry logic
+        const modelsToTry = ["gemini-1.5-flash", "gemini-pro"];
         let lastError = null;
 
         for (const modelName of modelsToTry) {
@@ -1163,7 +897,7 @@ app.post('/api/chat', async (req, res) => {
                     ]
                 });
 
-                const result = await chat.sendMessage(systemPrompt);
+                const result = await chat.sendMessage(systemPrompt + "\nUser Message: " + message);
                 const text = result.response.text();
 
                 // If successful, send response and exit loop
@@ -1193,10 +927,11 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-// Serve Static Files (Frontend)
-const distPath = path.join(__dirname, '../dist');
+// Serve Static Files (Frontend) using process.cwd() for Vercel/Node compatibility
+// We use process.cwd() because __dirname is not available in ESM
+const distPath = path.join(process.cwd(), 'dist');
+
 // Check if dist exists (it might not during dev or if user forgot to build)
-const fs = require('fs');
 if (fs.existsSync(distPath)) {
     console.log("Serving static files from:", distPath);
     app.use(express.static(distPath));
@@ -1212,10 +947,20 @@ if (fs.existsSync(distPath)) {
 }
 
 // Start Server only if run directly
-if (process.argv[1] === __filename) {
+// In ESM, checked by comparing process.argv[1] to file path
+// But process.argv[1] might be different in different environments.
+// However, since we export 'app', if imported by api/index.js, this block won't run if the check is correct.
+// In Vercel serverless, this file is imported, so we DON'T want to listen.
+// Locally 'node server/index.js', we DO want to listen.
+
+// Robust check:
+import { fileURLToPath } from 'url';
+const currentFilePath = fileURLToPath(import.meta.url);
+if (process.argv[1] === currentFilePath) {
     app.listen(PORT, () => {
         console.log(`Server running on port ${PORT}`);
     });
 }
 
 export default app;
+
