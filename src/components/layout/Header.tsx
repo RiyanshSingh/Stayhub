@@ -198,6 +198,20 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
             className="md:hidden bg-card border-t border-border"
           >
             <div className="container mx-auto px-4 py-4 space-y-4">
+              {/* Mobile User Profile Info */}
+              {isAuthenticated && user && (
+                <div className="flex items-center gap-3 pb-4 border-b border-border">
+                  <Avatar className="h-10 w-10">
+                    <AvatarImage src={user.avatar} alt={user.name} />
+                    <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col">
+                    <p className="text-sm font-medium leading-none">{user.name}</p>
+                    <p className="text-xs text-muted-foreground">{user.email}</p>
+                  </div>
+                </div>
+              )}
+
               <Link
                 to="/"
                 className="flex items-center gap-3 py-3 text-foreground hover:text-primary transition-colors"
@@ -215,6 +229,14 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
                 Explore Hotels
               </Link>
               <Link
+                to="/destinations"
+                className="flex items-center gap-3 py-3 text-foreground hover:text-primary transition-colors"
+                onClick={() => setIsMenuOpen(false)}
+              >
+                <Compass className="w-5 h-5" />
+                Destinations
+              </Link>
+              <Link
                 to="/owner"
                 className="flex items-center gap-3 py-3 text-foreground hover:text-primary transition-colors"
                 onClick={() => setIsMenuOpen(false)}
@@ -230,6 +252,19 @@ const Header = ({ variant = "solid" }: HeaderProps) => {
                 <Heart className="w-5 h-5" />
                 Saved
               </Link>
+
+              {/* Mobile Dashboard Link */}
+              {isAuthenticated && (
+                <Link
+                  to="/dashboard"
+                  className="flex items-center gap-3 py-3 text-foreground hover:text-primary transition-colors"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <UserIcon className="w-5 h-5" />
+                  Dashboard
+                </Link>
+              )}
+
               <div className="pt-4 border-t border-border">
                 {isAuthenticated ? (
                   <Button className="w-full" size="lg" variant="destructive" onClick={logout}>

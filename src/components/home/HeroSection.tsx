@@ -105,21 +105,23 @@ const HeroSection = () => {
                         )}
                       >
                         <CalendarIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary" />
-                        {date?.from ? (
-                          date.to ? (
-                            <>
-                              {format(date.from, "LLL dd, y")} -{" "}
-                              {format(date.to, "LLL dd, y")}
-                            </>
+                        <span className="truncate text-sm w-full text-left">
+                          {date?.from ? (
+                            date.to ? (
+                              <>
+                                {format(date.from, "LLL dd, y")} -{" "}
+                                {format(date.to, "LLL dd, y")}
+                              </>
+                            ) : (
+                              <>
+                                {format(date.from, "LLL dd, y")} -{" "}
+                                <span className="text-muted-foreground ml-1">Choose Date</span>
+                              </>
+                            )
                           ) : (
-                            <>
-                              {format(date.from, "LLL dd, y")} -{" "}
-                              <span className="text-muted-foreground ml-1">Choose Date</span>
-                            </>
-                          )
-                        ) : (
-                          <span>Pick a date</span>
-                        )}
+                            <span>Pick a date</span>
+                          )}
+                        </span>
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent className="w-auto p-0" align="start">
@@ -139,10 +141,10 @@ const HeroSection = () => {
                     <PopoverTrigger asChild>
                       <Button
                         variant={"secondary"}
-                        className="w-full h-14 justify-start text-left font-normal pl-12 rounded-xl border-0"
+                        className="w-full h-14 justify-start text-left font-normal pl-12 rounded-xl border-0 overflow-hidden"
                       >
                         <Users className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-primary" />
-                        <span>
+                        <span className="truncate text-sm w-full text-left">
                           {adults} Adult{adults !== 1 && "s"}, {children} Child{children !== 1 && "ren"}
                         </span>
                       </Button>
@@ -380,7 +382,7 @@ const HeroSection = () => {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ delay: 1.5, duration: 0.5 }}
-        className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10"
+        className="hidden md:block absolute bottom-8 left-1/2 -translate-x-1/2 z-10"
       >
         <motion.div
           animate={{ y: [0, 8, 0] }}
