@@ -26,6 +26,7 @@ import ScrollToTop from "./components/ScrollToTop";
 import ChatWidget from "./components/chat/ChatWidget";
 
 import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 const queryClient = new QueryClient();
 
@@ -78,6 +79,7 @@ const App = () => (
                 <Route path="*" element={<NotFound />} />
               </Routes>
               <Analytics />
+              <SpeedInsights />
             </BrowserRouter>
           </TooltipProvider>
         </PropertyProvider>
